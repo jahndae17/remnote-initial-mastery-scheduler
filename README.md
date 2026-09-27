@@ -44,10 +44,12 @@ The SDK is pinned to **0.0.46**. The lockfile pins the full dependency tree. Bui
 ## Install and assign in a disposable knowledge base
 
 1. Sign in to RemNote desktop or web and open a disposable knowledge base.
-2. Open **Settings → Plugins and Themes**, enable developer mode if needed, and use **Upload Plugin** to select `InitialMasteryScheduler-development.zip`. These install steps still need verification against the signed-in client. Alternatively, run `npm run dev` and use the developer-plugin URL `http://localhost:8080` where supported.
+2. From this project directory, run `npm run dev` and keep the process running. On the same computer, open **Settings → Plugins → Build → Develop from localhost** and enter **`http://localhost:8080`**. This is the [official local testing workflow](https://plugins.remnote.com/getting-started/quick_start_guide); it does not require marketplace approval. The development server and plugin manifest have been checked at that address; installation inside a signed-in RemNote client remains a live acceptance check.
 3. In **Settings → Schedulers**, create a scheduler using the algorithm **Initial Mastery + FSRS**. If it does not appear, open the plugin diagnostics and stop the acceptance run.
 4. Assign that scheduler to a test document using **Customize Spaced Repetition Scheduler** from its `/` menu or omnibar, or the scheduler's **Add Documents or Folders** action. Keep the global default unchanged while validating.
 5. Start ordinary spaced-repetition practice for that document. Open **Initial Mastery: Development diagnostics** from the command palette and complete the integration gates before continuing through the acceptance matrix.
+
+**Upload Plugin is a separate submission workflow.** Uploaded plugins still require RemNote team approval even with `unlisted: true`, as explained in [Unlisted Plugins](https://plugins.remnote.com/advanced/unlisted_plugins). Use localhost for immediate development testing; the ZIP is a build artifact, not an approval-free installation route.
 
 Scheduler assignment follows [RemNote's documented settings workflow](https://help.remnote.com/en/articles/6958056-custom-schedulers). Previously reviewed assigned cards keep their native history and existing due date until the next review. Cards never assigned to this algorithm keep their native scheduling behavior.
 
