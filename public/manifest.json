@@ -7,6 +7,7 @@
   "version": { "major": 0, "minor": 1, "patch": 2 },
   "theme": [],
   "enableOnMobile": false,
+  "unlisted": true,
   "description": "Development scheduler: five-point Initial Mastery, two-recall SRS confirmation and native queue progress.",
   "requestNative": false,
   "requiredScopes": [{ "type": "All", "level": "Read" }]

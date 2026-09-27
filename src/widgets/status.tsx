@@ -10,4 +10,3 @@ function Widget() {
   return <StatusPanel view={snapshot.view} mode={snapshot.mode} feedback={snapshot.feedback} />;
 }
 renderWidget(Widget);
-

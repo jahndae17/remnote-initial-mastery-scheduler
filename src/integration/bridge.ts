@@ -157,5 +157,3 @@ export class RemNoteBridge {
     await this.plugin.storage.setSession(VIEW_KEY, null); await this.diagnostics();
   }
 }
-
-

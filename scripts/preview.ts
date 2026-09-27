@@ -17,4 +17,3 @@ if (process.argv.includes('--serve')) createServer((req, res) => {
   if (req.url !== '/') { res.writeHead(404); res.end(); return; }
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
 }).listen(8391, '127.0.0.1', () => console.log('Panel preview: http://127.0.0.1:8391/'));
-

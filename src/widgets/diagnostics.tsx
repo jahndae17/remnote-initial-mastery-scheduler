@@ -11,4 +11,3 @@ function Diagnostics() {
   </main>;
 }
 renderWidget(Diagnostics);
-

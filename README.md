@@ -55,6 +55,8 @@ To stop testing, assign the test document back to a built-in scheduler before di
 
 ## Boundaries
 
+The official RemNote documentation was checked for the 0.1.2 build; see [DOCS_REVIEW.md](DOCS_REVIEW.md) for references, fixes and unresolved runtime assumptions.
+
 Read [VALIDATION.md](VALIDATION.md) before installation: the queue-mode callback, saved metadata, callback timing, widget location, undo semantics and lifecycle behavior remain live acceptance gates. In-place rewriting of old ratings currently stops with a diagnostic rather than silently reconstructing an unknowable past session. Ordinary native undo followed by rerating is supported by the tested engine.
 
 Native queue ordering and controls apply. This plugin does not enforce a separate practice mode or suppress other schedulers. Mobile, simultaneous reviews of one card on multiple devices and marketplace publication are outside version one's validated scope. Normal operation reads the current/previous card and their immediate content context; it does not scan the whole knowledge base. No analytics, remote service or permanent plugin-owned attempt log is used.

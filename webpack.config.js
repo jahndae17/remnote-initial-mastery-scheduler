@@ -74,9 +74,11 @@ const config = {
       const queryParams = Object.fromEntries(urlSearchParams.entries());
       const widgetName = queryParams["widgetName"];
       if (!['index', 'status', 'diagnostics'].includes(widgetName)) {throw new Error('Unknown widget');}
-      const css = document.createElement('link');
-      css.rel = 'stylesheet'; css.href = widgetName+"${SANDBOX_SUFFIX}.css";
-      document.head.appendChild(css);
+      if (${isProd} && widgetName !== 'index') {
+        const css = document.createElement('link');
+        css.rel = 'stylesheet'; css.href = widgetName+"${SANDBOX_SUFFIX}.css";
+        document.head.appendChild(css);
+      }
 
       const s = document.createElement('script');
       s.type = "module";
@@ -103,6 +105,7 @@ const config = {
         { from: 'README.md', to: '' },
         { from: 'VALIDATION.md', to: '' },
         { from: 'ARCHITECTURE.md', to: '' },
+        { from: 'DOCS_REVIEW.md', to: '' },
         { from: 'LICENSE', to: '' },
         { from: 'THIRD_PARTY_NOTICES.md', to: '' },
       ],
