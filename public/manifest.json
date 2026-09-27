@@ -10,5 +10,8 @@
   "unlisted": true,
   "description": "Development scheduler: five-point Initial Mastery, two-recall SRS confirmation and native queue progress.",
   "requestNative": false,
-  "requiredScopes": [{ "type": "All", "level": "Read" }]
+  "requiredScopes": [
+    { "type": "All", "level": "Read" },
+    { "type": "KnowledgeBaseInfo", "level": "Read" }
+  ]
 }
