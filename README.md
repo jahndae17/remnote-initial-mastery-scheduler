@@ -1,6 +1,6 @@
 # Initial Mastery + FSRS
 
-**0.1.2 development build — live RemNote integration is not validated.** Use a signed-in disposable knowledge base for the acceptance checklist in [VALIDATION.md](VALIDATION.md). Unknown callback contracts stop advancement and are shown in diagnostics; this is not yet a release-ready scheduler.
+**0.1.3 development build — live RemNote integration is not validated.** Use a signed-in disposable knowledge base for the acceptance checklist in [VALIDATION.md](VALIDATION.md). Unknown callback contracts stop advancement and are shown in diagnostics; this is not yet a release-ready scheduler.
 
 This is a fresh TypeScript/React project from the [official RemNote React template](https://github.com/remnoteio/remnote-plugin-template-react). Its ID is `initial_mastery_scheduler`. It shares no session engine, grading, adapters, tests or packages with the earlier Initial Mastery prototype. Installation does not assign or change any card's scheduler.
 
@@ -52,6 +52,8 @@ The SDK is pinned to **0.0.46**. The lockfile pins the full dependency tree. Bui
 **Upload Plugin is a separate submission workflow.** Uploaded plugins still require RemNote team approval even with `unlisted: true`, as explained in [Unlisted Plugins](https://plugins.remnote.com/advanced/unlisted_plugins). Use localhost for immediate development testing; the ZIP is a build artifact, not an approval-free installation route.
 
 The plugin requests read-only `All` and `KnowledgeBaseInfo` permissions. If an older local installation reports that `kb.getCurrentKnowledgeBaseData` lacks Read permission, remove that development installation and add it again through **Develop from localhost** so RemNote can load the corrected manifest and permission request.
+
+Version 0.1.3 opens diagnostics in a dismissible popup instead of a document pane, to avoid the live client's “Cannot parse window string” error. Close any old diagnostics pane, reload RemNote, then use **Ctrl+K → Initial Mastery: Development diagnostics**. Confirm the popup reports `0.1.3-development`. Popup behavior and practice navigation still require live verification.
 
 Scheduler assignment follows [RemNote's documented settings workflow](https://help.remnote.com/en/articles/6958056-custom-schedulers). Previously reviewed assigned cards keep their native history and existing due date until the next review. Cards never assigned to this algorithm keep their native scheduling behavior.
 

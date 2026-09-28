@@ -12,6 +12,8 @@ This is a new project scaffolded from the official RemNote React template. No so
 
 ## Automated and local checks
 
+**User-assisted live observations, 2026-09-28:** The corrected knowledge-base permission allowed the diagnostics view to display, with no recorded error while idle. The user then reported “Cannot parse window string” containing a widget pane reference when opening diagnostics and starting practice. Version 0.1.3 replaces diagnostics' Pane API with the documented Popup API and a close button. This is a targeted workaround, not proof of a RemNote root cause or successful queue integration. Close the old diagnostics pane before reloading. Popup opening/closing and practice navigation need retesting; no scheduling acceptance gate has passed yet.
+
 **Repository correction in 0.1.2:** RemNote rejected 0.1.0's localhost `repoUrl`, then rejected 0.1.1's template URL with “Repo URL must be your own public GitHub repo, not the template repo.” The prior format-only workaround was insufficient. The user supplied and authorized publishing to [jahndae17/remnote-initial-mastery-scheduler](https://github.com/jahndae17/remnote-initial-mastery-scheduler), which was verified public in GitHub. Version 0.1.2 points to this actual project repository. The validator also rejects template references. Retire the earlier plugin ZIPs; the new package still needs actual uploader and live scheduler acceptance testing.
 
 Tested on Windows, Node 24.4.1, npm 11.4.2, SDK 0.0.46 and ts-fsrs 5.4.2.

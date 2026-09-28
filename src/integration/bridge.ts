@@ -53,7 +53,7 @@ export class RemNoteBridge {
   }
   private async diagnostics() {
     await this.plugin.storage.setSession(DIAGNOSTICS_KEY, {
-      build: '0.1.2-development', liveValidated: false, active: this.session.active,
+      build: '0.1.3-development', liveValidated: false, active: this.session.active,
       mode: this.session.mode, generation: this.session.generation,
       cardsObserved: this.session.size, events: this.events, callbackShapes: this.callbackShapes,
       lastError: this.error || null,
