@@ -29,3 +29,9 @@ test('unmanaged cards have no panel and diagnostics have accessible alert', () =
 test('saved confirmation message includes released interval', () => {
   assert.match(render({ ...base, stage: 'srs', message: 'Confirmed', nextDate: 4 * 86400000 }), /next review in 4 days/);
 });
+
+test('cram displays paused status even before scheduler adoption; errors remain visible', () => {
+  assert.match(render({ ...base, stage: 'unmanaged' }, 'cram'), /Extra practice · progress paused/);
+  assert.doesNotMatch(render({ ...base, stage: 'unmanaged' }, 'cram'), /3\/5/);
+  assert.match(render({ ...base, stage: 'error', error: 'Cannot preserve due date' }, 'cram'), /Cannot preserve due date/);
+});

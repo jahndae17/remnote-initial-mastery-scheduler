@@ -19,6 +19,8 @@ Reviewed against https://plugins.remnote.com/ and the shipped SDK 0.0.46 declara
 
 ## Additional build fixes
 
+- Version 0.1.6 uses numeric 128-pixel height for the queue widget, following the documented fixed-dimension API. The earlier flow-root change did not resolve clipping in the user's second recording. Content scrolls inside that frame, and unchanged status writes are suppressed. Explicit native `isCram: true` now short-circuits normal-history/mode validation to preserve due dates without learning; unknown normal-practice contracts remain blocked.
+
 - Version 0.1.5 addresses the recorded queue banner flicker by retaining per-card integration errors across polling. A flow-root wrapper prevents status-panel margins from collapsing outside the element measured by the SDK's ResizeObserver. Live callback history differs from the original engine contract; anonymous shape diagnostics were added without weakening scheduling guards or treating previews as saved ratings.
 
 - SDK 0.0.46's `Card.getRem()` declaration promises a Rem object, but its shipped JavaScript returns raw transport data. Version 0.1.4 uses `plugin.rem.findOne(card.remId)`, whose SDK implementation wraps the result with Rem methods. A real-SDK wrapper regression test covers this difference; the earlier rich-object mock hid it.

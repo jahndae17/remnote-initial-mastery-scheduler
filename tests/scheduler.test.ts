@@ -142,6 +142,29 @@ test('administrative history entries do not count successful answers', () => {
   const h = harness(); h.graduate(); [2,4,5,.01].forEach((score,i) => h.card.history.push({ date: EPOCH+(10+i)*60000, score }));
   assert.equal(h.view().correct, 0);
 });
+
+test('cram is excluded before history-shape and unknown-mode checks, preserving pending FSRS', () => {
+  const h = harness(); h.graduate(); h.answer(1);
+  const prior = structuredClone(h.receipt().state), calls = (h.memory as CountingMemory).calls;
+  const due = h.card.due, count = h.view().correct;
+  h.coordinator.mode = 'unknown';
+  const review = { date: EPOCH + 20 * 60000, score: 1, isCram: true };
+  const result = h.coordinator.calculate(h.card, [review]);
+  assert.equal(result.nextDate, due);
+  assert.equal((h.memory as CountingMemory).calls, calls);
+  h.card.history.push({ ...review, pluginData: result.pluginData });
+  assert.equal(h.view().correct, count); assert.equal(h.view().confirmation, 1);
+  assert.deepEqual(h.receipt().state, prior);
+  assert.equal(h.coordinator.calculate(h.card, [review]).nextDate, due);
+});
+
+test('excluded practice cannot invent an unknown due date', () => {
+  const h = harness(); h.coordinator.mode = 'unknown';
+  h.card.due = undefined;
+  assert.throws(() => h.coordinator.calculate(h.card, [{ date: EPOCH, score: 1, isCram: true }]), /unknown due/);
+  h.card.due = NaN;
+  assert.throws(() => h.coordinator.calculate(h.card, [{ date: EPOCH, score: 1, isCram: true }]), /unknown due/);
+});
 test('undo graduation restores mastery, then replacement rating is applied once', () => {
   const h = harness(); h.graduate(); h.card.history.pop();
   assert.equal(h.view().stage, 'mastery'); assert.equal(h.view().mastery, 4);

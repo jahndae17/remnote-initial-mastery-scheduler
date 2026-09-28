@@ -1,6 +1,6 @@
 # Initial Mastery + FSRS
 
-**0.1.5 development build — live RemNote integration is blocked on callback-history and queue-mode contracts.** Use a signed-in disposable knowledge base for the acceptance checklist in [VALIDATION.md](VALIDATION.md). Unknown callback contracts stop advancement and are shown in diagnostics; this is not yet a release-ready scheduler.
+**0.1.6 development build — normal-practice scheduling is still blocked on unverified callback-history and queue-mode contracts.** Use a signed-in disposable knowledge base for the acceptance checklist in [VALIDATION.md](VALIDATION.md). Unknown callback contracts stop advancement and are shown in diagnostics; this is not yet a release-ready scheduler.
 
 This is a fresh TypeScript/React project from the [official RemNote React template](https://github.com/remnoteio/remnote-plugin-template-react). Its ID is `initial_mastery_scheduler`. It shares no session engine, grading, adapters, tests or packages with the earlier Initial Mastery prototype. Installation does not assign or change any card's scheduler.
 
@@ -53,9 +53,11 @@ The SDK is pinned to **0.0.46**. The lockfile pins the full dependency tree. Bui
 
 The plugin requests read-only `All` and `KnowledgeBaseInfo` permissions. If an older local installation reports that `kb.getCurrentKnowledgeBaseData` lacks Read permission, remove that development installation and add it again through **Develop from localhost** so RemNote can load the corrected manifest and permission request.
 
-Diagnostics opens in a dismissible popup instead of a document pane, to avoid the live client's “Cannot parse window string” error. Close any old diagnostics pane, reload RemNote, then use **Ctrl+K → Initial Mastery: Development diagnostics**. Confirm the popup reports `0.1.5-development`. Version 0.1.4 fixed `rem.getEnablePractice is not a function` by loading Rem objects through `plugin.rem.findOne(card.remId)` instead of the SDK's unwrapped `card.getRem()` result.
+Diagnostics opens in a dismissible popup instead of a document pane, to avoid the live client's “Cannot parse window string” error. Close any old diagnostics pane, reload RemNote, then use **Ctrl+K → Initial Mastery: Development diagnostics**. Confirm the popup reports `0.1.6-development`. Version 0.1.4 fixed `rem.getEnablePractice is not a function` by loading Rem objects through `plugin.rem.findOne(card.remId)` instead of the SDK's unwrapped `card.getRem()` result.
 
 The live client has supplied one callback entry alongside six or ten saved reviews, and no queue-mode callback has been observed. Version 0.1.5 keeps integration errors visible across background refreshes and adds a latest-callback shape summary (`lastCallback`) plus invocation counts (`callbackCalls`). These stay in memory and contain no card content or review timestamps. Scheduling remains blocked until these contracts are resolved; the display fix does not establish functioning mastery or FSRS scheduling.
+
+Version 0.1.6 recognizes explicit `isCram: true` before checking normal-practice history shape or queue mode, preserving the known due date without advancing scores or FSRS. The panel shows **Extra practice · progress paused**. Normal or ambiguous callbacks still require verified history and mode. `callbackCramFlags` counts true/false/missing flags without recording attempts. The queue panel now reserves 128 pixels, with internal scrolling and unchanged-state write suppression; this trades automatic collapse on unmanaged cards for stable layout during the development test.
 
 Scheduler assignment follows [RemNote's documented settings workflow](https://help.remnote.com/en/articles/6958056-custom-schedulers). Previously reviewed assigned cards keep their native history and existing due date until the next review. Cards never assigned to this algorithm keep their native scheduling behavior.
 

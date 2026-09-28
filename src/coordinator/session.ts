@@ -48,6 +48,13 @@ export class SessionCoordinator {
     const anchor = this.anchor(snapshot);
     const candidate = callbackHistory.at(-1);
     if (!candidate) throw new ContractError('Scheduler callback has no candidate rating.');
+    // The live host can provide a one-entry cram history even when native
+    // history contains older reviews. Exclusion needs no history reconstruction
+    // or normal-mode inference: return the saved due date without learning.
+    if (candidate.isCram === true || this.mode === 'practice-all' || this.mode === 'in-order') {
+      if (snapshot.due === undefined || !Number.isFinite(snapshot.due)) throw new ContractError('Cannot preserve an unknown due date during excluded practice.');
+      return { nextDate: snapshot.due, pluginData: { ...candidate.pluginData, [OWNER]: { schema: 1, excluded: true } } };
+    }
     // Replay of an already saved call returns its exact prior result.
     if (same(callbackHistory, snapshot.history)) {
       const saved = receiptAt(snapshot.history, snapshot.history.length - 1, snapshot.cardId);
@@ -56,10 +63,6 @@ export class SessionCoordinator {
     }
     if (!same(callbackHistory.slice(0, -1), snapshot.history)) throw new ContractError('Callback does not append exactly one rating to saved history.');
     if (this.mode === 'unknown') throw new ContractError('Queue mode has not been observed. Verify GetNextCard mode delivery before using this build.');
-    if (this.mode !== 'normal' || candidate.isCram) {
-      if (snapshot.due === undefined) throw new ContractError('Cannot preserve an unknown due date during excluded practice.');
-      return { nextDate: snapshot.due, pluginData: { ...candidate.pluginData, [OWNER]: { schema: 1, excluded: true } } };
-    }
     this.observe(snapshot);
     this.adopted.add(snapshot.cardId);
     const cacheKey = JSON.stringify(keys(callbackHistory));

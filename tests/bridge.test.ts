@@ -8,6 +8,7 @@ async function host(sdkObjects = false) {
   (globalThis as any).self = globalThis;
   const { RemNoteBridge, VIEW_KEY, DIAGNOSTICS_KEY } = await import('../src/integration/bridge');
   const callbacks = new Map<string, Function>(), events = new Map<string, Function>(), storage = new Map<string, any>();
+  const writes = new Map<string, number>();
   let kb = 'kb', queue = true, remaining = 3, current = 'a', enabled = true, deleted = false;
   let readBarrier: Promise<void> | undefined;
   const history: Review[] = [];
@@ -20,7 +21,7 @@ async function host(sdkObjects = false) {
     kb: { getCurrentKnowledgeBaseData: async () => ({ _id: kb }) },
     window: { isOnPage: async () => queue },
     queue: { getNumRemainingCards: async () => remaining, getCurrentCard: async () => current ? { ...card, _id: current } : undefined },
-    storage: { setSession: async (k: string, value: unknown) => { storage.set(k, value); } },
+    storage: { setSession: async (k: string, value: unknown) => { storage.set(k, value); writes.set(k, (writes.get(k) || 0) + 1); } },
     app: { registerCallback: (k: string, fn: Function) => { callbacks.set(k, fn); } },
     event: { addListener: (k: string, _id: unknown, fn: Function) => { events.set(k, fn); } },
     scheduler: { registerCustomScheduler: async (name: string, params: unknown[]) => { assert.equal(name, 'Initial Mastery + FSRS'); assert.deepEqual(params, []); } },
@@ -57,6 +58,7 @@ async function host(sdkObjects = false) {
   };
   return { bridge, history, callbacks, events, rem, mode, calculate, answer,
     view: () => storage.get(VIEW_KEY), diagnostic: () => storage.get(DIAGNOSTICS_KEY),
+    viewWrites: () => writes.get(VIEW_KEY) || 0,
     set: (s: { kb?: string; queue?: boolean; remaining?: number; current?: string; enabled?: boolean; deleted?: boolean; barrier?: Promise<void> }) => {
       kb = s.kb ?? kb; queue = s.queue ?? queue; remaining = s.remaining ?? remaining;
       current = s.current ?? current; enabled = s.enabled ?? enabled; deleted = s.deleted ?? deleted; readBarrier = s.barrier;
@@ -84,7 +86,34 @@ test('actual SDK wrappers supply Rem methods and preserve saved-only advancement
 test('native queue exit clears view and all score anchors', async () => {
   const h = await host(); try {
     await h.mode(); await h.answer(); h.events.get('queue.exit')!();
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(h.bridge.session.active, false); assert.equal(h.bridge.session.size, 0); assert.equal(h.view(), null);
+  } finally { await h.bridge.stop(); }
+});
+
+test('live one-entry cram callback preserves schedule without requiring queue-mode delivery', async () => {
+  const h = await host(); try {
+    for (let i = 0; i < 10; i++) h.history.push({ date: 1767225600000 + i * 60000, score: i === 9 ? 3 : 1 });
+    const result = await h.callbacks.get('SRSScheduleCard')!({ cardId: 'a', remId: 'rem-a', schedulerParameters: {},
+      history: [{ date: 1767226300000, score: 1, isCram: true }] });
+    assert.equal(result.nextDate, 0); assert.equal(h.history.length, 10);
+    assert.equal(h.view().mode, 'cram'); assert.equal(h.view().view.mastery, 0);
+    assert.equal(h.diagnostic().lastError, null); assert.equal(h.diagnostic().mode, 'unknown');
+    const writes = h.viewWrites();
+    await h.bridge.refresh(); await h.bridge.refresh();
+    assert.equal(h.viewWrites(), writes); assert.equal(h.view().mode, 'cram');
+  } finally { await h.bridge.stop(); }
+});
+
+test('identical error and normal views are not rewritten on every poll', async () => {
+  const h = await host(); try {
+    await assert.rejects(h.calculate(), /Queue mode/);
+    await h.bridge.refresh();
+    const errorWrites = h.viewWrites();
+    await h.bridge.refresh(); await h.bridge.refresh(); assert.equal(h.viewWrites(), errorWrites);
+    await h.mode(); await h.calculate();
+    const normalWrites = h.viewWrites();
+    await h.bridge.refresh(); await h.bridge.refresh(); assert.equal(h.viewWrites(), normalWrites);
   } finally { await h.bridge.stop(); }
 });
 test('empty completed queue ends session; focused queue refresh preserves scores', async () => {

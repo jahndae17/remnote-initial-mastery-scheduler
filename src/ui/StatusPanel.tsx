@@ -7,6 +7,7 @@ export function Segments({ label, value, max }: { label: string; value: number; 
   </span>;
 }
 export function StatusPanel({ view, mode = 'normal', now = Date.now(), feedback }: { view: StatusView; mode?: string; now?: number; feedback?: string }) {
+  if (view.stage !== 'error' && mode === 'cram') return <aside className="im-panel" role="status"><strong>Extra practice · progress paused</strong><p>RemNote marked this attempt as extra practice. Initial Mastery and SRS confirmation do not advance.</p></aside>;
   if (view.stage === 'unmanaged') return null;
   if (view.stage === 'error') return <aside className="im-panel im-error" role="alert"><strong>Initial Mastery · integration check</strong><p>{view.error}</p><small>Development build · open Initial Mastery: Development diagnostics.</small></aside>;
   const existing = view.origin === 'existing';
