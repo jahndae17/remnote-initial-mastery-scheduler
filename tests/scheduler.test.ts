@@ -138,17 +138,17 @@ test('explicit non-cram candidates work without GetNextCard; previews never esta
   const preview = h.propose(1, { isCram: false });
   assert.equal(h.coordinator.mode, 'unknown'); assert.equal(h.view().mastery, 0);
   h.commit(h.propose(1, { isCram: true }));
-  assert.equal(h.view().mastery, 0);
-  assert.equal(h.card.due, EPOCH);
+  assert.equal(h.view().mastery, 1);
   assert.throws(() => h.propose(1), /mode/);
-  h.commit(h.propose(1, { isCram: false })); assert.equal(h.view().mastery, 1);
+  h.commit(h.propose(1, { isCram: false })); assert.equal(h.view().mastery, 2);
   assert.equal(preview.result.nextDate, preview.review.date + 60000);
 });
 
-test('known excluded queue mode overrides an explicit non-cram preview', () => {
+test('initial mastery counts practice-all ratings before graduation', () => {
   const h = harness(); h.coordinator.mode = 'practice-all';
-  h.commit(h.propose(1, { isCram: false })); assert.equal(h.view().mastery, 0);
-  assert.equal(h.card.due, EPOCH);
+  const p = h.propose(1, { isCram: true });
+  h.commit(p); assert.equal(h.view().mastery, 1);
+  assert.equal(h.card.due, p.review.date + 60000);
 });
 
 test('exact post-reset callback history supports graduation, retry, replay and undo', () => {
@@ -184,11 +184,11 @@ test('administrative history entries do not count successful answers', () => {
   assert.equal(h.view().correct, 0);
 });
 
-test('cram is excluded before history-shape and unknown-mode checks, preserving pending FSRS', () => {
+test('explicit practice-all remains excluded for a pending SRS cycle', () => {
   const h = harness(); h.graduate(); h.answer(1);
   const prior = structuredClone(h.receipt().state), calls = (h.memory as CountingMemory).calls;
   const due = h.card.due, count = h.view().correct;
-  h.coordinator.mode = 'unknown';
+  h.coordinator.mode = 'practice-all';
   const review = { date: EPOCH + 20 * 60000, score: 1, isCram: true };
   const result = h.coordinator.calculate(h.card, [review]);
   assert.equal(result.nextDate, due);
@@ -200,11 +200,49 @@ test('cram is excluded before history-shape and unknown-mode checks, preserving 
 });
 
 test('excluded practice cannot invent an unknown due date', () => {
-  const h = harness(); h.coordinator.mode = 'unknown';
+  const h = harness(); h.graduate(); h.coordinator.mode = 'unknown';
   h.card.due = undefined;
   assert.throws(() => h.coordinator.calculate(h.card, [{ date: EPOCH, score: 1, isCram: true }]), /unknown due/);
   h.card.due = NaN;
   assert.throws(() => h.coordinator.calculate(h.card, [{ date: EPOCH, score: 1, isCram: true }]), /unknown due/);
+});
+
+test('native early ratings graduate at five, preserve flags and do not count old excluded attempts', () => {
+  const h = harness(); h.coordinator.mode = 'unknown';
+  h.card.history.push({ date: EPOCH - 120000, score: 3 },
+    { date: EPOCH - 60000, score: 1, isCram: true, pluginData: { [OWNER]: { schema: 1, excluded: true } } });
+  for (let i = 1; i <= 5; i++) {
+    const p = h.propose(1, { isCram: true });
+    assert.equal(h.view().mastery, i - 1);
+    assert.deepEqual(h.coordinator.calculate(h.card, p.history.slice(1)), p.result);
+    const v = h.commit(p); assert.equal(v.mastery, i); assert.equal(v.correct, 0);
+    assert.equal(h.card.history.at(-1)?.isCram, true);
+    assert.deepEqual(h.coordinator.calculate(h.card, h.card.history.slice(1)), p.result);
+  }
+  assert.equal(h.view().stage, 'srs'); assert.equal((h.memory as CountingMemory).calls, 1);
+  const due = h.card.due;
+  h.commit(h.propose(1, { isCram: true })); assert.equal(h.card.due, due); assert.equal(h.view().correct, 0);
+});
+
+test('early learning mistakes subtract one and session restart clears only partial progress', () => {
+  const h = harness();
+  for (const score of [1,1,1,1,0]) h.commit(h.propose(score as Score, { isCram: true }));
+  assert.equal(h.view().mastery, 3); h.restart(); assert.equal(h.view().mastery, 0);
+  h.commit(h.propose(1, { isCram: true })); assert.equal(h.view().mastery, 1);
+  h.card.history.pop(); assert.equal(h.view().mastery, 0);
+});
+
+test('pending confirmation accepts early repeats once and preserves first-rating FSRS across restart', () => {
+  const h = harness(); h.graduate(); h.answer(1);
+  const pending = structuredClone(h.receipt().state.pending);
+  h.commit(h.propose(0, { isCram: true })); assert.equal(h.view().confirmation, 0);
+  assert.deepEqual(h.receipt().state.pending, pending); h.restart();
+  h.commit(h.propose(1, { isCram: true })); assert.equal(h.view().confirmation, 1);
+  const p = h.propose(1, { isCram: true }); h.commit(p);
+  assert.equal(h.receipt().outcome, 'confirmed'); assert.equal(h.view().correct, 3);
+  assert.equal((h.memory as CountingMemory).calls, 2);
+  assert.deepEqual(h.coordinator.calculate(h.card, h.card.history), p.result);
+  h.card.history.pop(); assert.equal(h.view().confirmation, 1); assert.equal(h.view().correct, 2);
 });
 test('undo graduation restores mastery, then replacement rating is applied once', () => {
   const h = harness(); h.graduate(); h.card.history.pop();

@@ -1,4 +1,4 @@
-import { keys, latestReceipt, receiptAt, resetIndex } from '../domain/history';
+import { keys, learningTarget, receiptAt, resetIndex } from '../domain/history';
 import { schedule, status, type ScheduleResult } from '../domain/engine';
 import { ContractError, OWNER, type MemoryScheduler, type Review, type SessionAnchor, type StatusView } from '../domain/types';
 
@@ -48,28 +48,33 @@ export class SessionCoordinator {
     const anchor = this.anchor(snapshot);
     const candidate = callbackHistory.at(-1);
     if (!candidate) throw new ContractError('Scheduler callback has no candidate rating.');
-    // Mode belongs to this calculation, not to the session: the host can ask
-    // for non-cram button previews and then submit a cram rating for one card.
-    const mode = this.mode === 'unknown' && candidate.isCram === false ? 'normal' : this.mode;
-    // The live host can provide a one-entry cram history even when native
-    // history contains older reviews. Exclusion needs no history reconstruction
-    // or normal-mode inference: return the saved due date without learning.
-    if (candidate.isCram === true || mode === 'practice-all' || mode === 'in-order') {
-      if (snapshot.due === undefined || !Number.isFinite(snapshot.due)) throw new ContractError('Cannot preserve an unknown due date during excluded practice.');
-      return { nextDate: snapshot.due, pluginData: { ...candidate.pluginData, [OWNER]: { schema: 1, excluded: true } } };
-    }
-    // Scheduling ignores entries through the last reset, but native history
-    // retains them. Restore that exact prefix only when the remaining history
-    // matches in full; arbitrary truncations or omissions are still rejected.
+    // Scheduling ignores entries through the last reset, but saved history retains them.
     const reset = resetIndex(snapshot.history);
     const lifetime = snapshot.history.slice(reset + 1);
     if (reset >= 0 && (same(callbackHistory, lifetime) || same(callbackHistory.slice(0, -1), lifetime))) {
       callbackHistory = [...snapshot.history.slice(0, reset + 1), ...callbackHistory];
     }
-    // Replay of an already saved call returns its exact prior result.
-    if (same(callbackHistory, snapshot.history)) {
+    // Check replay before stage eligibility: graduation itself changes the stage.
+    const replay = same(callbackHistory, snapshot.history);
+    if (replay) {
       const saved = receiptAt(snapshot.history, snapshot.history.length - 1, snapshot.cardId);
       if (saved) return { nextDate: saved.nextDate, pluginData: snapshot.history.at(-1)!.pluginData! };
+    }
+    // Mode belongs to this calculation, not to the session: the host can ask
+    // for non-cram button previews and then submit a cram rating for one card.
+    const target = learningTarget(snapshot.history, snapshot.cardId);
+    const excludedMode = this.mode === 'practice-all' || this.mode === 'in-order';
+    // Initial Mastery takes precedence over native early/practice-all flags.
+    // Pending confirmation repeats also count, except in explicitly selected
+    // practice-all/in-order modes. Preserve the actual native flag in receipts.
+    const contextKnown = this.mode !== 'unknown' || typeof candidate.isCram === 'boolean';
+    const learning = contextKnown && (target === 'mastery' || (target === 'confirmation' && !excludedMode));
+    const mode = learning || (this.mode === 'unknown' && candidate.isCram === false) ? 'normal' : this.mode;
+    if (!learning && (candidate.isCram === true || excludedMode)) {
+      if (snapshot.due === undefined || !Number.isFinite(snapshot.due)) throw new ContractError('Cannot preserve an unknown due date during excluded practice.');
+      return { nextDate: snapshot.due, pluginData: { ...candidate.pluginData, [OWNER]: { schema: 1, excluded: true } } };
+    }
+    if (replay) {
       throw new ContractError('Callback arrived after saving without a receipt. This host callback contract needs validation.');
     }
     if (!same(callbackHistory.slice(0, -1), snapshot.history)) throw new ContractError('Callback does not append exactly one rating to saved history.');

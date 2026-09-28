@@ -1,4 +1,4 @@
-import { correctAfterBoundary, latestReceipt, lineage, ordinary, progressFromHistory, resetIndex, sessionStart } from './history';
+import { correctAfterBoundary, latestReceipt, learningTarget, lineage, ordinary, progressFromHistory, resetIndex, sessionStart } from './history';
 import { ContractError, OWNER, REPEAT_MS, isRating, isSuccess, step, type DurableState, type MemoryScheduler, type Receipt, type Review, type SessionAnchor, type StatusView } from './types';
 
 export type ScheduleRequest = {
@@ -19,9 +19,10 @@ function initialState(history: Review[], cardId: string, memory: MemoryScheduler
 export function schedule(request: ScheduleRequest, memory: MemoryScheduler): ScheduleResult {
   const { cardId, history, anchor, mode } = request;
   const candidate = history.at(-1);
-  if (!candidate || !isRating(candidate.score) || candidate.isCram || mode !== 'normal') throw new ContractError('Only confirmed normal-practice context can advance this scheduler.');
+  if (!candidate || !isRating(candidate.score) || mode !== 'normal') throw new ContractError('Only eligible learning or normal-practice context can advance this scheduler.');
   if (!Number.isFinite(candidate.date)) throw new ContractError('Invalid review timestamp.');
   const prefix = history.slice(0, -1);
+  if (candidate.isCram && !learningTarget(prefix, cardId)) throw new ContractError('Extra practice after a completed learning target cannot advance this scheduler.');
   if (prefix.some(r => r.date > candidate.date)) throw new ContractError('Review history must be chronological.');
   const state = initialState(prefix, cardId, memory);
   const progress = progressFromHistory(prefix, cardId, anchor, state);
@@ -48,6 +49,7 @@ export function schedule(request: ScheduleRequest, memory: MemoryScheduler): Sch
   }
   if (!Number.isFinite(nextDate) || nextDate <= candidate.date) throw new ContractError('FSRS did not return a future interval.');
   const receipt: Receipt = { schema: 1, cardId, reviewIndex: index, lineage: lineage(history), attempt, outcome, nextDate, state };
+  if (candidate.isCram) receipt.acceptedEarly = true;
   return { nextDate, pluginData: { ...candidate.pluginData, [OWNER]: receipt } };
 }
 export function status(history: Review[], cardId: string, anchor: SessionAnchor, adopted = false): StatusView {

@@ -83,8 +83,12 @@ test('reset-trimmed non-cram previews and cram commits retain separate diagnosti
     const preview = await h.callbacks.get('SRSScheduleCard')!(args);
     assert.equal(preview.nextDate, 1767225660000); assert.equal(h.view().mode, 'normal');
     assert.equal(h.view().view.mastery, 0);
-    await h.callbacks.get('SRSScheduleCard')!({ ...args, history: [{ ...args.history[0], isCram: true }] });
-    assert.equal(h.view().mode, 'cram'); assert.equal(h.view().view.mastery, 0);
+    const review = { ...args.history[0], isCram: true };
+    const committed = await h.callbacks.get('SRSScheduleCard')!({ ...args, history: [review] });
+    assert.equal(h.view().mode, 'normal'); assert.equal(h.view().view.mastery, 0);
+    h.history.push({ ...review, pluginData: committed.pluginData }); await h.bridge.refresh();
+    assert.equal(h.view().view.mastery, 1); assert.equal(h.view().mode, 'normal');
+    assert.deepEqual(h.diagnostic().lastSavedResult, { stage: 'mastery', mastery: 1, confirmation: 0, correct: 0, acceptedEarly: true, outcome: 'repeat' });
     assert.equal(h.diagnostic().lastCallbackByCramFlag.false.prefixMatchesSinceReset, true);
     assert.equal(h.diagnostic().lastCallbackByCramFlag.true.candidateIsCram, 'true');
     assert.match(h.diagnostic().lastFailure.message, /Queue mode/);
@@ -96,6 +100,19 @@ test('bridge registers scheduler, observes mode, and only saved ratings advance 
   const h = await host(); try {
     assert.equal(await h.mode(), null); await h.calculate(); assert.equal(h.view().view.mastery, 0);
     await h.answer(); assert.equal(h.view().view.mastery, 1); assert.equal(h.diagnostic().mode, 'normal');
+  } finally { await h.bridge.stop(); }
+});
+
+test('a delayed save after queue navigation is still reconciled without a whole-KB scan', async () => {
+  const h = await host(); try {
+    await h.mode(); const result = await h.calculate();
+    h.set({ current: '' }); await h.bridge.refresh();
+    assert.equal(h.diagnostic().lastSavedResult, null);
+    h.history.push({ date: 1767225600000, score: 1, pluginData: result.pluginData });
+    await h.bridge.refresh();
+    assert.equal(h.diagnostic().lastSavedResult.mastery, 1);
+    h.events.get('queue.exit')!(); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.diagnostic().lastSavedResult, null);
   } finally { await h.bridge.stop(); }
 });
 
@@ -118,17 +135,17 @@ test('native queue exit clears view and all score anchors', async () => {
   } finally { await h.bridge.stop(); }
 });
 
-test('live one-entry cram callback preserves schedule without requiring queue-mode delivery', async () => {
+test('live one-entry early learning callback requests a repeat without queue-mode delivery', async () => {
   const h = await host(); try {
     for (let i = 0; i < 10; i++) h.history.push({ date: 1767225600000 + i * 60000, score: i === 9 ? 3 : 1 });
     const result = await h.callbacks.get('SRSScheduleCard')!({ cardId: 'a', remId: 'rem-a', schedulerParameters: {},
       history: [{ date: 1767226300000, score: 1, isCram: true }] });
-    assert.equal(result.nextDate, 0); assert.equal(h.history.length, 10);
-    assert.equal(h.view().mode, 'cram'); assert.equal(h.view().view.mastery, 0);
+    assert.equal(result.nextDate, 1767226360000); assert.equal(h.history.length, 10);
+    assert.equal(h.view().mode, 'normal'); assert.equal(h.view().view.mastery, 0);
     assert.equal(h.diagnostic().lastError, null); assert.equal(h.diagnostic().mode, 'unknown');
     const writes = h.viewWrites();
     await h.bridge.refresh(); await h.bridge.refresh();
-    assert.equal(h.viewWrites(), writes); assert.equal(h.view().mode, 'cram');
+    assert.equal(h.viewWrites(), writes); assert.equal(h.view().mode, 'normal');
   } finally { await h.bridge.stop(); }
 });
 

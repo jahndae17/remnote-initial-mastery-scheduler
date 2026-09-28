@@ -1,8 +1,8 @@
 import { AppEvents, PageType_DUPE_1 as PageType, SchedulerExplanationType, SpecialPluginCallback, type RNPlugin, type SRSScheduleCardParams } from '@remnote/plugin-sdk';
 import { SessionCoordinator, type Snapshot } from '../coordinator/session';
 import { FsrsAdapter } from '../fsrs/adapter';
-import { ContractError } from '../domain/types';
-import { latestReceipt } from '../domain/history';
+import { ContractError, OWNER } from '../domain/types';
+import { latestReceipt, reviewKey } from '../domain/history';
 import { inspectCallbackHistory } from './callback-shape';
 import { VIEW_KEY, DIAGNOSTICS_KEY, type PanelSnapshot } from './view';
 export { VIEW_KEY, DIAGNOSTICS_KEY } from './view';
@@ -23,9 +23,11 @@ export class RemNoteBridge {
   private lastCallback?: ReturnType<typeof inspectCallbackHistory>;
   private lastCallbackByCramFlag: Partial<Record<'true' | 'false' | 'missing', ReturnType<typeof inspectCallbackHistory>>> = {};
   private lastFailure?: { message: string; callback: ReturnType<typeof inspectCallbackHistory> | null };
+  private lastSavedResult?: { stage: string; mastery: number; confirmation: number; correct: number; acceptedEarly: boolean; outcome: string };
   private cardErrors = new Map<string, string>();
   private pausedCards = new Set<string>();
   private normalCards = new Set<string>();
+  private awaitingSave = new Map<string, { key: string; expires: number }>();
   private viewWrites: Promise<void> = Promise.resolve();
   private lastView?: string;
   private lastDiagnostics?: string;
@@ -34,7 +36,7 @@ export class RemNoteBridge {
   private stopped = false;
   private lastFeedback?: { cardId: string; message: string; expires: number; generation: number };
   private feedbackSeen = new Map<string, string>();
-  private clearFeedback() { this.feedbackSeen.clear(); this.lastFeedback = undefined; this.cardErrors.clear(); this.pausedCards.clear(); this.normalCards.clear(); }
+  private clearFeedback() { this.awaitingSave.clear(); this.lastSavedResult = undefined; this.feedbackSeen.clear(); this.lastFeedback = undefined; this.cardErrors.clear(); this.pausedCards.clear(); this.normalCards.clear(); }
   private writeView(value: PanelSnapshot): Promise<void> {
     const serialized = JSON.stringify(value);
     const write = this.viewWrites.then(async () => {
@@ -78,14 +80,15 @@ export class RemNoteBridge {
   }
   private async diagnostics() {
     const value = {
-      build: '0.1.7-development', liveValidated: false, active: this.session.active,
+      build: '0.1.8-development', liveValidated: false, active: this.session.active,
       mode: this.session.mode, generation: this.session.generation,
       cardsObserved: this.session.size, events: this.events, callbackShapes: this.callbackShapes,
       callbackCalls: this.callbackCalls, lastCallback: this.lastCallback || null,
       callbackCramFlags: this.callbackCramFlags,
       lastCallbackByCramFlag: this.lastCallbackByCramFlag, lastFailure: this.lastFailure || null,
+      lastSavedResult: this.lastSavedResult || null,
       lastError: this.error || null,
-      contracts: ['Callback must match full history or history after the latest reset, plus one candidate', 'Normal calculation requires queue mode or explicit isCram:false; cram never advances', 'Saved rating must retain returned pluginData'],
+      contracts: ['Callback must match full history or history after the latest reset, plus one candidate', 'Initial Mastery accepts early ratings; completed SRS cycles exclude extra practice', 'Saved rating must retain returned pluginData'],
     };
     const serialized = JSON.stringify(value);
     const write = this.diagnosticWrites.then(async () => {
@@ -120,10 +123,15 @@ export class RemNoteBridge {
       this.callbackCramFlags[this.lastCallback.candidateIsCram as keyof typeof this.callbackCramFlags]++;
       this.lastCallbackByCramFlag[this.lastCallback.candidateIsCram as keyof typeof this.callbackCramFlags] = this.lastCallback;
       const result = this.session.calculate(snapshot, args.history);
-      if (args.history.at(-1)?.isCram === true || this.session.mode === 'practice-all' || this.session.mode === 'in-order') this.pausedCards.add(snapshot.cardId);
-      else this.pausedCards.delete(snapshot.cardId);
-      if (args.history.at(-1)?.isCram === false) this.normalCards.add(snapshot.cardId);
-      else this.normalCards.delete(snapshot.cardId);
+      // Queue navigation can precede the history save. Keep a small bounded
+      // set of recent candidates under observation rather than losing the old
+      // card after the first (too-early) load-card refresh. Previews expire.
+      this.awaitingSave.delete(snapshot.cardId);
+      this.awaitingSave.set(snapshot.cardId, { key: reviewKey(args.history.at(-1)!), expires: Date.now() + 15000 });
+      if (this.awaitingSave.size > 4) this.awaitingSave.delete(this.awaitingSave.keys().next().value!);
+      const excluded = (result.pluginData[OWNER] as { excluded?: boolean })?.excluded === true;
+      if (excluded) { this.pausedCards.add(snapshot.cardId); this.normalCards.delete(snapshot.cardId); }
+      else { this.pausedCards.delete(snapshot.cardId); this.normalCards.add(snapshot.cardId); }
       this.cardErrors.delete(snapshot.cardId);
       this.error = [...this.cardErrors.values()].at(-1) || '';
       // Publish saved history, never a hypothetical callback result.
@@ -144,6 +152,8 @@ export class RemNoteBridge {
     const receipt = latestReceipt(snapshot.history, snapshot.cardId);
     const feedbackKey = `${this.session.generation}:${receipt?.lineage}`;
     if (receipt && view.message && this.feedbackSeen.get(snapshot.cardId) !== feedbackKey) {
+      this.lastSavedResult = { stage: view.stage, mastery: view.mastery, confirmation: view.confirmation,
+        correct: view.correct, acceptedEarly: receipt.acceptedEarly === true, outcome: receipt.outcome };
       this.feedbackSeen.set(snapshot.cardId, feedbackKey);
       this.lastFeedback = { cardId: snapshot.cardId, message: view.message, expires: Date.now() + 4500, generation: this.session.generation };
     }
@@ -151,7 +161,7 @@ export class RemNoteBridge {
     const feedback = previous && previous.cardId !== snapshot.cardId && previous.generation === this.session.generation && previous.expires > Date.now()
       ? `Previous card: ${previous.message}` : undefined;
     if (snapshot.cardId === this.currentId) await this.writeView({
-      kb: this.session.kb!, generation: this.session.generation, mode: this.pausedCards.has(snapshot.cardId) ? 'cram' : this.normalCards.has(snapshot.cardId) && this.session.mode === 'unknown' ? 'normal' : this.session.mode, view, feedback,
+      kb: this.session.kb!, generation: this.session.generation, mode: this.pausedCards.has(snapshot.cardId) ? 'cram' : this.normalCards.has(snapshot.cardId) ? 'normal' : this.session.mode, view, feedback,
     } as PanelSnapshot);
   }
   async refresh() {
@@ -173,11 +183,13 @@ export class RemNoteBridge {
       this.session.begin(kb._id);
       const generation = this.session.generation;
       const previous = this.currentId; this.currentId = current?._id;
-      const ids = [...new Set([previous, current?._id].filter((id): id is string => !!id))];
+      for (const [id, waiting] of this.awaitingSave) if (waiting.expires < Date.now()) this.awaitingSave.delete(id);
+      const ids = [...new Set([previous, current?._id, ...this.awaitingSave.keys()].filter((id): id is string => !!id))];
       for (const id of ids) {
         const snapshot = await this.snapshot(id);
         if (generation !== this.session.generation || this.stopped) return;
         await this.publish(snapshot);
+        if (snapshot.history.some(r => reviewKey(r) === this.awaitingSave.get(id)?.key)) this.awaitingSave.delete(id);
       }
       if (!current) await this.writeView(null);
     } catch (error) { await this.report(error); }

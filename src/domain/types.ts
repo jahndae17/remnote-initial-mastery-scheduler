@@ -16,6 +16,7 @@ export type Receipt = {
   schema: 1; cardId: string; lineage: string; reviewIndex: number;
   attempt: 'mastery' | 'confirmation'; outcome: 'repeat' | 'graduated' | 'confirmed';
   nextDate: number; state: DurableState;
+  acceptedEarly?: true;
 };
 export type SessionAnchor = { reviewKeys: string[]; contentRevision: string };
 export type Progress = { mastery: number; confirmation: number };

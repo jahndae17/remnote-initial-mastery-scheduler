@@ -3,8 +3,14 @@ import { ContractError, OWNER, isRating, isSuccess, step, type DurableState, typ
 export function reviewKey(review: Review) { return JSON.stringify([review.date, review.score, !!review.isCram]); }
 export function keys(history: Review[]) { return history.map(reviewKey); }
 export function ordinary(review: Review) {
-  const metadata = review.pluginData?.[OWNER] as { excluded?: boolean } | undefined;
-  return !review.isCram && !metadata?.excluded && isRating(review.score);
+  const metadata = review.pluginData?.[OWNER] as { excluded?: boolean; acceptedEarly?: boolean } | undefined;
+  return (!review.isCram || metadata?.acceptedEarly === true) && !metadata?.excluded && isRating(review.score);
+}
+/** Native early-practice flags must not prevent completing a learning target. */
+export function learningTarget(history: Review[], cardId: string): 'mastery' | 'confirmation' | undefined {
+  const receipt = latestReceipt(history, cardId);
+  if (receipt) return receipt.state.phase === 'mastery' ? 'mastery' : receipt.state.pending ? 'confirmation' : undefined;
+  return history.slice(resetIndex(history) + 1).some(ordinary) ? undefined : 'mastery';
 }
 export function resetIndex(history: Review[]) {
   for (let i = history.length - 1; i >= 0; i--) if (history[i].score === 3) return i;
@@ -38,6 +44,7 @@ export function receiptAt(history: Review[], index: number, cardId: string): Rec
   if ((raw as { excluded?: boolean })?.excluded === true) return;
   if (!r || r.schema !== 1 || r.cardId !== cardId || r.reviewIndex !== index ||
       !['mastery','confirmation'].includes(r.attempt) || !['repeat','graduated','confirmed'].includes(r.outcome) ||
+      (r.acceptedEarly !== undefined && r.acceptedEarly !== true) ||
       !finite(r.nextDate) || !validState(r.state) || r.lineage !== lineage(history.slice(0, index + 1))) {
     throw new ContractError('Saved scheduler metadata is invalid or its review history changed. Inspect this card before continuing.');
   }
