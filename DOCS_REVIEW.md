@@ -19,6 +19,8 @@ Reviewed against https://plugins.remnote.com/ and the shipped SDK 0.0.46 declara
 
 ## Additional build fixes
 
+- Diagnostics popup sizing uses explicit numeric SDK dimensions (640 × 480). The widget scrolls within that fixed iframe. Avoid CSS `min(...)` in SDK dimensions and avoid combining automatic iframe height with an iframe-relative height cap, which can produce unstable sizing. Live dimensions still need confirmation in the user's client.
+
 - The upstream template's `.nvmrc` specified Node 16.15.1, while the selected ts-fsrs package requires Node >=20. Set `.nvmrc` to the tested Node 24.4.1 and declare Node >=20 in package metadata.
 - Include Node configuration, ignore rules and this review in source packaging.
 - Do not request a nonexistent index-widget stylesheet. Development uses injected styles; production loads CSS only for the two visual widgets.

@@ -6,7 +6,7 @@ async function onActivate(plugin: ReactRNPlugin) {
   await plugin.app.registerWidget('status', WidgetLocation.QueueBelowTopBar, { dimensions: { height: 'auto', width: '100%' } });
   // Keep diagnostics out of the persisted pane layout: the live client rejected
   // the widget pane string on both opening diagnostics and entering practice.
-  await plugin.app.registerWidget('diagnostics', WidgetLocation.Popup, { dimensions: { height: 'auto', width: 'min(680px, 90vw)' } });
+  await plugin.app.registerWidget('diagnostics', WidgetLocation.Popup, { dimensions: { height: 480, width: 640 } });
   await plugin.app.registerCommand({ id: 'initial-mastery-diagnostics', name: 'Initial Mastery: Development diagnostics', action: async () => { await plugin.widget.openPopup('diagnostics', undefined, true); } });
   await bridge.start();
 }

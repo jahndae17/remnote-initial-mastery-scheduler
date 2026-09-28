@@ -13,7 +13,7 @@ body { margin: 0; }
 .im-message { margin-top: 6px; min-height: 18px; font-size: 12px; }
 .im-error { border-left: 4px solid #af5a12; }
 .im-error p { margin: 4px 0; }
-.im-diagnostics { padding: 18px; box-sizing: border-box; max-height: 80vh; overflow-y: auto; background: var(--rn-clr-background-primary, #f8fafc); }
+.im-diagnostics { padding: 18px; box-sizing: border-box; height: 100vh; width: 100%; overflow-y: auto; overflow-wrap: anywhere; background: var(--rn-clr-background-primary, #f8fafc); }
 .im-diagnostics h1 { font-size: 19px; }
 .im-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 @media (prefers-color-scheme: dark) {
