@@ -7,6 +7,6 @@ function Widget() {
   const context = useTracker(plugin => plugin.widget.getWidgetContext<WidgetLocation.QueueBelowTopBar>());
   const kb = useTracker(plugin => plugin.kb.getCurrentKnowledgeBaseData());
   if (!snapshot || kb?._id !== snapshot.kb || (context?.cardId && context.cardId !== snapshot.view.cardId)) return null;
-  return <StatusPanel view={snapshot.view} mode={snapshot.mode} feedback={snapshot.feedback} />;
+  return <div className="im-status-root"><StatusPanel view={snapshot.view} mode={snapshot.mode} feedback={snapshot.feedback} /></div>;
 }
 renderWidget(Widget);

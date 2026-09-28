@@ -19,7 +19,7 @@ async function host(sdkObjects = false) {
     rem: { findOne: async () => rem },
     kb: { getCurrentKnowledgeBaseData: async () => ({ _id: kb }) },
     window: { isOnPage: async () => queue },
-    queue: { getNumRemainingCards: async () => remaining, getCurrentCard: async () => current ? card : undefined },
+    queue: { getNumRemainingCards: async () => remaining, getCurrentCard: async () => current ? { ...card, _id: current } : undefined },
     storage: { setSession: async (k: string, value: unknown) => { storage.set(k, value); } },
     app: { registerCallback: (k: string, fn: Function) => { callbacks.set(k, fn); } },
     event: { addListener: (k: string, _id: unknown, fn: Function) => { events.set(k, fn); } },
@@ -126,5 +126,42 @@ test('normal review never invokes getAll and missing mode reports explicit integ
   const h = await host(); try {
     await assert.rejects(h.calculate(), /Queue mode/); assert.match(h.diagnostic().lastError, /Queue mode/);
     await h.mode(); await h.answer(); assert.equal(h.history.length, 1);
+  } finally { await h.bridge.stop(); }
+});
+
+test('callback error stays visible across refreshes and clears only after successful calculation', async () => {
+  const h = await host(); try {
+    await assert.rejects(h.calculate(), /Queue mode/);
+    for (let i = 0; i < 3; i++) {
+      await h.bridge.refresh();
+      assert.equal(h.view().view.stage, 'error');
+      assert.match(h.view().view.error, /Queue mode/);
+    }
+    h.set({ current: 'b' }); await h.bridge.refresh();
+    assert.notEqual(h.view().view.stage, 'error');
+    h.set({ current: 'a' }); await h.bridge.refresh(); assert.equal(h.view().view.stage, 'error');
+    await h.mode(); await h.calculate();
+    assert.equal(h.view().view.stage, 'mastery'); assert.equal(h.view().view.mastery, 0);
+    assert.equal(h.history.length, 0); assert.equal(h.diagnostic().lastError, null);
+    assert.deepEqual(h.diagnostic().callbackCalls, { scheduling: 2, queueMode: 1 });
+  } finally { await h.bridge.stop(); }
+});
+
+test('truncated history diagnostics describe relationships without recording review data', async () => {
+  const h = await host(); try {
+    const savedDate = 1767225600000;
+    for (let i = 0; i < 6; i++) h.history.push({ date: savedDate + i * 60000, score: 1 });
+    await h.mode();
+    await assert.rejects(h.callbacks.get('SRSScheduleCard')!({ cardId: 'a', remId: 'rem-a', schedulerParameters: {},
+      history: [{ date: savedDate + 6 * 60000, score: 1 }] }), /exactly one/);
+    const shape = h.diagnostic().lastCallback;
+    assert.equal(shape.callbackLength, 1); assert.equal(shape.savedLength, 6);
+    assert.equal(shape.candidateAfterSaved, true); assert.equal(shape.candidateMatchesSaved, false);
+    assert.equal(shape.prefixMatchesSaved, false); assert.equal(shape.candidateIsCram, 'missing');
+    assert.equal(shape.savedOwnedMetadataEntries, 0);
+    assert.doesNotMatch(JSON.stringify(shape), /176722|rem-a|front|answer/);
+    await h.bridge.refresh(); assert.equal(h.view().view.stage, 'error');
+    h.events.get('queue.exit')!(); await h.bridge.refresh();
+    assert.notEqual(h.view().view.stage, 'error');
   } finally { await h.bridge.stop(); }
 });

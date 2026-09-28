@@ -1,5 +1,6 @@
 :root { color-scheme: light dark; }
 body { margin: 0; }
+.im-status-root { display: flow-root; min-width: 0; overflow-wrap: anywhere; }
 .im-panel, .im-diagnostics { font: 13px/1.45 system-ui, sans-serif; color: var(--rn-clr-content-primary, #243247); }
 .im-panel { margin: 6px 8px; padding: 9px 12px; border: 1px solid var(--rn-clr-border-primary, #c9d1dd); border-radius: 9px; background: var(--rn-clr-background-primary, #f8fafc); }
 .im-row { display: flex; align-items: center; gap: 10px 18px; flex-wrap: wrap; }
