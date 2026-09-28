@@ -4,14 +4,24 @@
   "name": "Initial Mastery + FSRS (Development)",
   "author": "Initial Mastery project",
   "repoUrl": "https://github.com/jahndae17/remnote-initial-mastery-scheduler",
-  "version": { "major": 0, "minor": 1, "patch": 8 },
+  "version": {
+    "major": 0,
+    "minor": 1,
+    "patch": 9
+  },
   "theme": [],
   "enableOnMobile": false,
   "unlisted": true,
   "description": "Development scheduler: five-point Initial Mastery, two-recall SRS confirmation and native queue progress.",
   "requestNative": false,
   "requiredScopes": [
-    { "type": "All", "level": "Read" },
-    { "type": "KnowledgeBaseInfo", "level": "Read" }
+    {
+      "type": "All",
+      "level": "Read"
+    },
+    {
+      "type": "KnowledgeBaseInfo",
+      "level": "Read"
+    }
   ]
 }

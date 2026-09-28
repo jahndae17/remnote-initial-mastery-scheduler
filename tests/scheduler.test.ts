@@ -85,6 +85,40 @@ test('new cycle calculates FSRS exactly once again', () => {
   const h = harness(); h.graduate(); [1,1,1,1].forEach(s => h.answer(s as Score));
   assert.equal((h.memory as CountingMemory).calls, 3); assert.equal(h.view().correct, 4);
 });
+
+test('subsequent due cycles require two recalls even when the first saved rating is marked cram', () => {
+  const h = harness(); h.graduate(); h.coordinator.mode = 'unknown';
+  const commitAt = (date: number, score: Score) => {
+    const review = { date, score, isCram: true };
+    const history = [...h.card.history, review];
+    const result = h.coordinator.calculate(h.card, history);
+    assert.deepEqual(h.coordinator.calculate(h.card, history), result);
+    h.card.history.push({ ...review, pluginData: result.pluginData }); h.card.due = result.nextDate;
+    return h.view();
+  };
+  for (let cycle = 1; cycle <= 3; cycle++) {
+    const due = h.card.due!;
+    commitAt(due - 1, 1); assert.equal(h.card.due, due); // genuinely early extra review
+    assert.equal(commitAt(due, 1).confirmation, 1);
+    const pending = structuredClone(h.receipt().state.pending);
+    assert.equal((h.memory as CountingMemory).calls, 1 + cycle);
+    assert.equal(commitAt(due + 1000, 0).confirmation, 0);
+    assert.deepEqual(h.receipt().state.pending, pending);
+    assert.equal(commitAt(due + 2000, 1).confirmation, 1);
+    const v = commitAt(due + 3000, 1);
+    assert.equal(h.receipt().outcome, 'confirmed'); assert.equal(v.correct, cycle * 3);
+    assert.equal(h.card.due, due + 3000 + pending!.intervalMs);
+    assert.equal(h.receipt().state.fsrs?.last_review, due);
+    assert.equal((h.memory as CountingMemory).calls, 1 + cycle);
+  }
+});
+
+test('due dates do not override explicitly excluded SRS practice-all modes', () => {
+  const h = harness(); h.graduate(); h.coordinator.mode = 'practice-all';
+  const due = h.card.due!;
+  const result = h.coordinator.calculate(h.card, [...h.card.history, { date: due + 1, score: 1, isCram: true }]);
+  assert.equal(result.nextDate, due); assert.equal((h.memory as CountingMemory).calls, 1);
+});
 test('restart discards initial score while preserving history', () => {
   const h = harness(); h.answer(1); h.answer(1); assert.equal(h.restart().mastery, 0);
   assert.equal(h.card.history.length, 2); assert.equal(h.answer(1).mastery, 1);

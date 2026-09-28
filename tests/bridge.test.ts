@@ -11,12 +11,13 @@ async function host(sdkObjects = false) {
   const writes = new Map<string, number>();
   let kb = 'kb', queue = true, remaining = 3, current = 'a', enabled = true, deleted = false;
   let readBarrier: Promise<void> | undefined;
+  let cardReads = 0;
   const history: Review[] = [];
   const rem = { _id: 'rem-a', text: ['front'], backText: ['answer'], children: [], parent: null, type: 1,
     getEnablePractice: async () => enabled, getPracticeDirection: async () => 'both', getChildrenRem: async () => [] };
   const card = { _id: 'a', remId: 'rem-a', type: 'forward', repetitionHistory: history, nextRepetitionTime: 0, getRem: async () => rem };
   const plugin = {
-    card: { findOne: async () => { await readBarrier; return deleted ? undefined : card; }, getAll: () => { throw Error('Whole KB scan prohibited'); } },
+    card: { findOne: async () => { cardReads++; await readBarrier; return deleted ? undefined : card; }, getAll: () => { throw Error('Whole KB scan prohibited'); } },
     rem: { findOne: async () => rem },
     kb: { getCurrentKnowledgeBaseData: async () => ({ _id: kb }) },
     window: { isOnPage: async () => queue },
@@ -57,6 +58,7 @@ async function host(sdkObjects = false) {
     await bridge.refresh(); return result;
   };
   return { bridge, history, callbacks, events, rem, mode, calculate, answer,
+    reads: () => cardReads,
     view: () => storage.get(VIEW_KEY), diagnostic: () => storage.get(DIAGNOSTICS_KEY),
     viewWrites: () => writes.get(VIEW_KEY) || 0,
     diagnosticWrites: () => writes.get(DIAGNOSTICS_KEY) || 0,
@@ -65,6 +67,59 @@ async function host(sdkObjects = false) {
       current = s.current ?? current; enabled = s.enabled ?? enabled; deleted = s.deleted ?? deleted; readBarrier = s.barrier;
     } };
 }
+
+test('four concurrent rating previews share one snapshot and later reviews read fresh data', async () => {
+  const h = await host(); let release!: () => void;
+  try {
+    await h.mode(); const before = h.reads();
+    h.set({ barrier: new Promise<void>(resolve => { release = resolve; }) });
+    const previews = Promise.all([0, .5, 1, 1.5].map(score => h.calculate(score)));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.reads() - before, 1);
+    release(); await previews;
+    assert.equal(h.view().view.mastery, 0);
+    const after = h.reads(); await h.calculate(); assert.equal(h.reads(), after + 1);
+    assert.ok(h.diagnostic().sharedSnapshotReads >= 3);
+  } finally { release?.(); await h.bridge.stop(); }
+});
+
+test('queue exit is immediate during a blocked read, cancels fast retries and rejects late callbacks', async () => {
+  const h = await host(); let release!: () => void;
+  try {
+    await h.mode(); await h.calculate();
+    h.set({ barrier: new Promise<void>(resolve => { release = resolve; }) });
+    const pending = h.calculate();
+    await new Promise(resolve => setImmediate(resolve));
+    h.events.get('queue.exit')!(); h.set({ queue: false });
+    assert.equal(h.bridge.session.active, false);
+    const reads = h.reads();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal(h.reads(), reads); assert.equal(h.view(), null);
+    release(); await assert.rejects(pending, /Session ended/);
+    assert.equal(h.view(), null); assert.equal(h.diagnostic().lastError, null);
+  } finally { release?.(); await h.bridge.stop(); }
+});
+
+test('a callback after navigation closes the session even if QueueExit has not arrived', async () => {
+  const h = await host(); try {
+    await h.mode(); await h.calculate(); h.set({ queue: false });
+    await assert.rejects(h.calculate(), /No active/);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.bridge.session.active, false); assert.equal(h.view(), null);
+    assert.equal(h.diagnostic().lastError, null);
+  } finally { await h.bridge.stop(); }
+});
+
+test('saved progress appears during a short follow-up check without waiting for the idle poll', async () => {
+  const h = await host(); try {
+    await h.mode(); const result = await h.calculate();
+    h.history.push({ date: 1767225600000, score: 1, pluginData: result.pluginData });
+    h.events.get('queue.complete-card')!();
+    const deadline = Date.now() + 1000;
+    while (h.diagnostic().lastSavedResult?.mastery !== 1 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(h.diagnostic().lastSavedResult.mastery, 1);
+  } finally { await h.bridge.stop(); }
+});
 
 test('polling does not rewrite unchanged diagnostics or subscribe to its own global Rem changes', async () => {
   const h = await host(); try {

@@ -32,6 +32,10 @@ Content signatures cover the source Rem's rich text, back text, type, children, 
 
 Queue navigation can arrive before the prior rating is visible in saved history. Up to four recently calculated card IDs remain under observation for 15 seconds, alongside the current and previous card. A matching saved rating removes the candidate; unanswered previews expire. These reads are bounded and never enumerate the knowledge base. The single anonymous lastSavedResult diagnostic is populated from validated saved receipts and cleared when the session ends.
 
+Concurrent calculations share only unresolved context/snapshot promises, scoped by session generation and card ID. There is no completed-snapshot cache, so later ratings and edits require fresh reads. Independent cards are fetched concurrently and the current card is published after previous-card feedback. Overlapping refresh requests coalesce. Short refresh bursts check delayed saves without permanently increasing the polling rate. Exit clears the timers and in-flight lookup maps, increments session generation and clears the view; late results cannot schedule or repopulate the closed view. Successful scheduling does not wait for diagnostics persistence.
+
+A finite saved due date at or before the proposed rating permits an SRS cycle to begin despite a native cram flag, except in a known excluded queue mode. Before that date, completed-cycle early reviews remain excluded. The pure engine independently checks this due-date exception.
+
 ## Sources
 
 - [SDK callback contract](https://plugins.remnote.com/api/interfaces/SpecialPluginCallbackInfo)

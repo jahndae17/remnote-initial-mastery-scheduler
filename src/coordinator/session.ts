@@ -68,7 +68,8 @@ export class SessionCoordinator {
     // Pending confirmation repeats also count, except in explicitly selected
     // practice-all/in-order modes. Preserve the actual native flag in receipts.
     const contextKnown = this.mode !== 'unknown' || typeof candidate.isCram === 'boolean';
-    const learning = contextKnown && (target === 'mastery' || (target === 'confirmation' && !excludedMode));
+    const due = snapshot.due !== undefined && Number.isFinite(snapshot.due) && candidate.date >= snapshot.due;
+    const learning = contextKnown && (target === 'mastery' || (!excludedMode && (target === 'confirmation' || due)));
     const mode = learning || (this.mode === 'unknown' && candidate.isCram === false) ? 'normal' : this.mode;
     if (!learning && (candidate.isCram === true || excludedMode)) {
       if (snapshot.due === undefined || !Number.isFinite(snapshot.due)) throw new ContractError('Cannot preserve an unknown due date during excluded practice.');
@@ -87,7 +88,7 @@ export class SessionCoordinator {
     // Native UI can ask for the same rating repeatedly. Memoization also avoids
     // duplicate FSRS work; neither a cache hit nor a miss commits progress.
     const cached = cache.get(cacheKey); if (cached) return structuredClone(cached);
-    const result = schedule({ cardId: snapshot.cardId, history: [...snapshot.history, candidate], anchor, mode }, this.memory);
+    const result = schedule({ cardId: snapshot.cardId, history: [...snapshot.history, candidate], anchor, mode, due: snapshot.due }, this.memory);
     cache.set(cacheKey, structuredClone(result));
     // Only current previews and recent uncertain writes need retaining.
     if (cache.size > 16) cache.delete(cache.keys().next().value!);

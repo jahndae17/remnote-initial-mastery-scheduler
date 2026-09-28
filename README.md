@@ -1,6 +1,6 @@
 # Initial Mastery + FSRS
 
-**0.1.8 development build — unfinished Initial Mastery now accepts native early-practice ratings.** Use a signed-in disposable knowledge base for the acceptance checklist in [VALIDATION.md](VALIDATION.md). Unknown callback contracts stop advancement and are shown in diagnostics; this is not yet a release-ready scheduler.
+**0.1.9 development build — verified repeated two-recall cycles in automated tests, with faster preview reads, saved-result checks and queue-exit cleanup.** Use a signed-in disposable knowledge base for the acceptance checklist in [VALIDATION.md](VALIDATION.md). Unknown callback contracts stop advancement and are shown in diagnostics; this is not yet a release-ready scheduler.
 
 This is a fresh TypeScript/React project from the [official RemNote React template](https://github.com/remnoteio/remnote-plugin-template-react). Its ID is `initial_mastery_scheduler`. It shares no session engine, grading, adapters, tests or packages with the earlier Initial Mastery prototype. Installation does not assign or change any card's scheduler.
 
@@ -18,6 +18,10 @@ RemNote provides its native card display, answer checking, rating buttons and re
 Initial Mastery is a five-point score, not a streak. Until 5/5 the plugin requests another review after one minute; RemNote chooses queue order and may show it earlier. The fifth point graduates the card and initializes FSRS with that rating. Graduation immediately schedules the first interval without another confirmation pair.
 
 After graduation, the first rating of each cycle updates FSRS once. That result stays fixed, even if later confirmation attempts are wrong. Until confirmation reaches 2/2, the plugin requests one-minute repeats. It then schedules the proposed interval from confirmation completion. The first rating's time remains the actual FSRS review timestamp.
+
+A genuinely due SRS card can begin its next cycle even if RemNote marks the submitted rating as cram. Eligibility uses the saved native due date and the candidate's timestamp. Known practice-all/in-order modes still exclude SRS advancement. Early optional practice before that due date remains excluded once the previous cycle has completed.
+
+For responsiveness, simultaneous preview callbacks share in-flight card/context reads; completed reads are never reused for later reviews. Brief follow-up checks at 80, 240, 560 and 1200 milliseconds reduce reliance on the 1.5-second idle poll. These are scheduling targets, not guaranteed UI latencies. Queue exit cancels the follow-up timers, clears the panel, and invalidates outstanding work. Diagnostics writes are no longer awaited before returning a successful schedule.
 
 The panel shows stage, Initial Mastery score, current SRS confirmation and **individual successful answers since graduation**. Initial learning and the graduating rating do not count. Successful answers from unfinished SRS cycles do count. Existing reviewed cards show **SRS · Existing card**, **Not required**, and successes **since adoption**. Adoption occurs on the first saved review using this scheduler; older eligible native reviews are replayed into FSRS without rewriting history or inventing a graduation date.
 
@@ -55,7 +59,7 @@ The SDK is pinned to **0.0.46**. The lockfile pins the full dependency tree. Bui
 
 The plugin requests read-only `All` and `KnowledgeBaseInfo` permissions. If an older local installation reports that `kb.getCurrentKnowledgeBaseData` lacks Read permission, remove that development installation and add it again through **Develop from localhost** so RemNote can load the corrected manifest and permission request.
 
-Diagnostics opens in a dismissible popup instead of a document pane, to avoid the live client's “Cannot parse window string” error. Use the queue strip's **Details** button or **Ctrl+K → Initial Mastery: Development diagnostics**. Confirm the popup reports `0.1.8-development`. Details also displays the full status captured when opened, including any truncated error. Version 0.1.4 fixed `rem.getEnablePractice is not a function` by loading Rem objects through `plugin.rem.findOne(card.remId)` instead of the SDK's unwrapped `card.getRem()` result.
+Diagnostics opens in a dismissible popup instead of a document pane, to avoid the live client's “Cannot parse window string” error. Use the queue strip's **Details** button or **Ctrl+K → Initial Mastery: Development diagnostics**. Confirm the popup reports `0.1.9-development`. Details also displays the full status captured when opened, including any truncated error. Version 0.1.4 fixed `rem.getEnablePractice is not a function` by loading Rem objects through `plugin.rem.findOne(card.remId)` instead of the SDK's unwrapped `card.getRem()` result.
 
 The live client supplies scheduling history after the most recent reset, while saved history retains older reviews and the reset itself. Version 0.1.7 restores only that exact matching prefix. Other missing or inconsistent histories remain blocked. `GetNextCard` has not been observed. Version 0.1.8 evaluates each callback against the saved learning stage and native practice flag. A missing flag with unknown queue mode remains blocked. Accepted early reviews retain their native `isCram` value and receive an `acceptedEarly` receipt field so rebuilding saved progress includes them. No review is rewritten or appended directly.
 

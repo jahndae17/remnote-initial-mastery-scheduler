@@ -2,7 +2,7 @@ import { correctAfterBoundary, latestReceipt, learningTarget, lineage, ordinary,
 import { ContractError, OWNER, REPEAT_MS, isRating, isSuccess, step, type DurableState, type MemoryScheduler, type Receipt, type Review, type SessionAnchor, type StatusView } from './types';
 
 export type ScheduleRequest = {
-  cardId: string; history: Review[]; anchor: SessionAnchor; mode: 'normal' | 'practice-all' | 'in-order' | 'unknown';
+  cardId: string; history: Review[]; anchor: SessionAnchor; mode: 'normal' | 'practice-all' | 'in-order' | 'unknown'; due?: number;
 };
 export type ScheduleResult = { nextDate: number; pluginData: Record<string, unknown> };
 function initialState(history: Review[], cardId: string, memory: MemoryScheduler): DurableState {
@@ -22,7 +22,8 @@ export function schedule(request: ScheduleRequest, memory: MemoryScheduler): Sch
   if (!candidate || !isRating(candidate.score) || mode !== 'normal') throw new ContractError('Only eligible learning or normal-practice context can advance this scheduler.');
   if (!Number.isFinite(candidate.date)) throw new ContractError('Invalid review timestamp.');
   const prefix = history.slice(0, -1);
-  if (candidate.isCram && !learningTarget(prefix, cardId)) throw new ContractError('Extra practice after a completed learning target cannot advance this scheduler.');
+  const due = request.due !== undefined && Number.isFinite(request.due) && candidate.date >= request.due;
+  if (candidate.isCram && !learningTarget(prefix, cardId) && !due) throw new ContractError('Extra practice after a completed learning target cannot advance this scheduler.');
   if (prefix.some(r => r.date > candidate.date)) throw new ContractError('Review history must be chronological.');
   const state = initialState(prefix, cardId, memory);
   const progress = progressFromHistory(prefix, cardId, anchor, state);

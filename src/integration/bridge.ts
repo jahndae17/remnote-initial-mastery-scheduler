@@ -15,6 +15,11 @@ export class RemNoteBridge {
   readonly session = new SessionCoordinator(new FsrsAdapter());
   private timer?: ReturnType<typeof setInterval>;
   private refreshRunning = false;
+  private refreshRequested = false;
+  private fastTimers = new Set<ReturnType<typeof setTimeout>>();
+  private snapshotReads = new Map<string, Promise<Snapshot>>();
+  private contextRead?: Promise<string>;
+  private sharedSnapshotReads = 0;
   private currentId?: string;
   private events: Record<string, number> = {};
   private callbackShapes: Record<string, number> = {};
@@ -36,7 +41,19 @@ export class RemNoteBridge {
   private stopped = false;
   private lastFeedback?: { cardId: string; message: string; expires: number; generation: number };
   private feedbackSeen = new Map<string, string>();
-  private clearFeedback() { this.awaitingSave.clear(); this.lastSavedResult = undefined; this.feedbackSeen.clear(); this.lastFeedback = undefined; this.cardErrors.clear(); this.pausedCards.clear(); this.normalCards.clear(); }
+  private clearFeedback() { this.cancelFastRefresh(); this.snapshotReads.clear(); this.contextRead = undefined; this.awaitingSave.clear(); this.lastSavedResult = undefined; this.feedbackSeen.clear(); this.lastFeedback = undefined; this.cardErrors.clear(); this.pausedCards.clear(); this.normalCards.clear(); }
+  private cancelFastRefresh() { for (const timer of this.fastTimers) clearTimeout(timer); this.fastTimers.clear(); this.refreshRequested = false; }
+  private fastRefresh() {
+    if (this.stopped || !this.session.active || this.fastTimers.size) return;
+    const generation = this.session.generation;
+    for (const delay of [80, 240, 560, 1200]) {
+      const timer = setTimeout(() => {
+        this.fastTimers.delete(timer);
+        if (!this.stopped && generation === this.session.generation) void this.refresh();
+      }, delay);
+      this.fastTimers.add(timer);
+    }
+  }
   private writeView(value: PanelSnapshot): Promise<void> {
     const serialized = JSON.stringify(value);
     const write = this.viewWrites.then(async () => {
@@ -48,7 +65,17 @@ export class RemNoteBridge {
     return write;
   }
   constructor(private plugin: RNPlugin) {}
-  private async snapshot(cardId: string): Promise<Snapshot> {
+  private snapshot(cardId: string): Promise<Snapshot> {
+    const key = `${this.session.generation}:${cardId}`;
+    const existing = this.snapshotReads.get(key);
+    if (existing) { this.sharedSnapshotReads++; return existing; }
+    const read = this.readSnapshot(cardId).finally(() => {
+      if (this.snapshotReads.get(key) === read) this.snapshotReads.delete(key);
+    });
+    this.snapshotReads.set(key, read);
+    return read;
+  }
+  private async readSnapshot(cardId: string): Promise<Snapshot> {
     const card = await this.plugin.card.findOne(cardId);
     // SDK 0.0.46 Card.getRem returns unwrapped transport data at runtime.
     // RemNamespace.findOne constructs the Rem object with practice/content methods.
@@ -69,10 +96,22 @@ export class RemNoteBridge {
       enabled: enabled && directionEnabled,
       revision: JSON.stringify([card.type, content(rem), children.map(content), ancestry]) };
   }
-  private async ensureContext() {
+  private ensureContext(): Promise<string> {
+    if (this.contextRead) return this.contextRead;
+    const read = this.readContext().finally(() => { if (this.contextRead === read) this.contextRead = undefined; });
+    this.contextRead = read;
+    return read;
+  }
+  private async readContext() {
     const generation = this.session.generation;
-    const kb = await this.plugin.kb.getCurrentKnowledgeBaseData();
-    if (!kb?._id || !await this.plugin.window.isOnPage(PageType.Queue)) throw new ContractError('No active knowledge-base review queue.');
+    const [kb, onQueue] = await Promise.all([this.plugin.kb.getCurrentKnowledgeBaseData(), this.plugin.window.isOnPage(PageType.Queue)]);
+    if (!kb?._id || !onQueue) {
+      if (!this.stopped && generation === this.session.generation) {
+        this.session.end(); this.currentId = undefined; this.clearFeedback();
+        void this.writeView(null);
+      }
+      throw new ContractError('No active knowledge-base review queue.');
+    }
     if (this.stopped || generation !== this.session.generation) throw new ContractError('Session changed during context lookup.');
     if (this.session.kb !== kb._id) { this.currentId = undefined; this.clearFeedback(); }
     this.session.begin(kb._id);
@@ -80,7 +119,8 @@ export class RemNoteBridge {
   }
   private async diagnostics() {
     const value = {
-      build: '0.1.8-development', liveValidated: false, active: this.session.active,
+      build: '0.1.9-development', liveValidated: false, active: this.session.active,
+      sharedSnapshotReads: this.sharedSnapshotReads,
       mode: this.session.mode, generation: this.session.generation,
       cardsObserved: this.session.size, events: this.events, callbackShapes: this.callbackShapes,
       callbackCalls: this.callbackCalls, lastCallback: this.lastCallback || null,
@@ -135,9 +175,17 @@ export class RemNoteBridge {
       this.cardErrors.delete(snapshot.cardId);
       this.error = [...this.cardErrors.values()].at(-1) || '';
       // Publish saved history, never a hypothetical callback result.
-      await this.publish(snapshot); await this.diagnostics();
+      await this.publish(snapshot);
+      if (generation !== this.session.generation || this.stopped) throw new ContractError('Session ended during callback.');
+      // Diagnostics are not needed for the host to commit its rating.
+      void this.diagnostics().catch(() => {});
+      this.fastRefresh();
       return { ...result, explanation: { type: SchedulerExplanationType.NormalRepetition, text: 'Initial Mastery + FSRS · development build' } };
-    } catch (error) { await this.report(error, args.cardId); throw error; }
+    } catch (error) {
+      // Closing the queue must not wait for a diagnostics write from stale work.
+      if (this.session.active && !this.stopped) await this.report(error, args.cardId);
+      throw error;
+    }
   }
   private async publish(snapshot: Snapshot) {
     const view = this.session.observe(snapshot);
@@ -165,7 +213,8 @@ export class RemNoteBridge {
     } as PanelSnapshot);
   }
   async refresh() {
-    if (this.refreshRunning || this.stopped) return;
+    if (this.stopped) return;
+    if (this.refreshRunning) { this.refreshRequested = true; return; }
     this.refreshRunning = true;
     const started = this.session.generation;
     try {
@@ -184,16 +233,26 @@ export class RemNoteBridge {
       const generation = this.session.generation;
       const previous = this.currentId; this.currentId = current?._id;
       for (const [id, waiting] of this.awaitingSave) if (waiting.expires < Date.now()) this.awaitingSave.delete(id);
-      const ids = [...new Set([previous, current?._id, ...this.awaitingSave.keys()].filter((id): id is string => !!id))];
-      for (const id of ids) {
-        const snapshot = await this.snapshot(id);
+      const ids = [...new Set([previous, ...this.awaitingSave.keys()].filter((id): id is string => !!id && id !== current?._id))];
+      if (current) ids.push(current._id);
+      // Fetch independent cards together, then publish the current card last so
+      // feedback from a just-saved previous card appears in the same refresh.
+      const snapshots = await Promise.allSettled(ids.map(id => this.snapshot(id)));
+      for (let i = 0; i < ids.length; i++) {
         if (generation !== this.session.generation || this.stopped) return;
+        const id = ids[i], result = snapshots[i];
+        if (result.status === 'rejected') { await this.report(result.reason, id); continue; }
+        const snapshot = result.value;
         await this.publish(snapshot);
         if (snapshot.history.some(r => reviewKey(r) === this.awaitingSave.get(id)?.key)) this.awaitingSave.delete(id);
       }
       if (!current) await this.writeView(null);
     } catch (error) { await this.report(error); }
-    finally { this.refreshRunning = false; await this.diagnostics(); }
+    finally {
+      this.refreshRunning = false;
+      void this.diagnostics().catch(() => {});
+      if (this.refreshRequested && !this.stopped) { this.refreshRequested = false; void this.refresh(); }
+    }
   }
   async start() {
     await this.writeView(null);
@@ -215,7 +274,7 @@ export class RemNoteBridge {
           this.session.end(); this.currentId = undefined;
           this.clearFeedback();
           void this.writeView(null); void this.diagnostics();
-        } else void this.refresh();
+        } else { void this.refresh(); if (event === AppEvents.QueueCompleteCard || event === AppEvents.QueueLoadCard) this.fastRefresh(); }
       });
     }
     await this.plugin.scheduler.registerCustomScheduler('Initial Mastery + FSRS', []);
