@@ -59,11 +59,38 @@ async function host(sdkObjects = false) {
   return { bridge, history, callbacks, events, rem, mode, calculate, answer,
     view: () => storage.get(VIEW_KEY), diagnostic: () => storage.get(DIAGNOSTICS_KEY),
     viewWrites: () => writes.get(VIEW_KEY) || 0,
+    diagnosticWrites: () => writes.get(DIAGNOSTICS_KEY) || 0,
     set: (s: { kb?: string; queue?: boolean; remaining?: number; current?: string; enabled?: boolean; deleted?: boolean; barrier?: Promise<void> }) => {
       kb = s.kb ?? kb; queue = s.queue ?? queue; remaining = s.remaining ?? remaining;
       current = s.current ?? current; enabled = s.enabled ?? enabled; deleted = s.deleted ?? deleted; readBarrier = s.barrier;
     } };
 }
+
+test('polling does not rewrite unchanged diagnostics or subscribe to its own global Rem changes', async () => {
+  const h = await host(); try {
+    assert.equal(h.events.has('global.rem.changed'), false);
+    const writes = h.diagnosticWrites();
+    await h.bridge.refresh(); await h.bridge.refresh();
+    assert.equal(h.diagnosticWrites(), writes);
+  } finally { await h.bridge.stop(); }
+});
+
+test('reset-trimmed non-cram previews and cram commits retain separate diagnostics', async () => {
+  const h = await host(); try {
+    await assert.rejects(h.calculate(), /Queue mode/);
+    h.history.push({ date: 1767225500000, score: 3 });
+    const args = { cardId: 'a', remId: 'rem-a', schedulerParameters: {}, history: [{ date: 1767225600000, score: 1, isCram: false }] };
+    const preview = await h.callbacks.get('SRSScheduleCard')!(args);
+    assert.equal(preview.nextDate, 1767225660000); assert.equal(h.view().mode, 'normal');
+    assert.equal(h.view().view.mastery, 0);
+    await h.callbacks.get('SRSScheduleCard')!({ ...args, history: [{ ...args.history[0], isCram: true }] });
+    assert.equal(h.view().mode, 'cram'); assert.equal(h.view().view.mastery, 0);
+    assert.equal(h.diagnostic().lastCallbackByCramFlag.false.prefixMatchesSinceReset, true);
+    assert.equal(h.diagnostic().lastCallbackByCramFlag.true.candidateIsCram, 'true');
+    assert.match(h.diagnostic().lastFailure.message, /Queue mode/);
+    assert.equal(h.diagnostic().lastError, null);
+  } finally { await h.bridge.stop(); }
+});
 
 test('bridge registers scheduler, observes mode, and only saved ratings advance widget', async () => {
   const h = await host(); try {

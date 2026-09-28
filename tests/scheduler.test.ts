@@ -132,6 +132,47 @@ test('commit-first callback without receipt is blocked', () => {
 test('unknown mode cannot advance', () => {
   const h = harness(); h.coordinator.mode = 'unknown'; assert.throws(() => h.propose(1), /mode/);
 });
+
+test('explicit non-cram candidates work without GetNextCard; previews never establish session mode', () => {
+  const h = harness(); h.coordinator.mode = 'unknown';
+  const preview = h.propose(1, { isCram: false });
+  assert.equal(h.coordinator.mode, 'unknown'); assert.equal(h.view().mastery, 0);
+  h.commit(h.propose(1, { isCram: true }));
+  assert.equal(h.view().mastery, 0);
+  assert.equal(h.card.due, EPOCH);
+  assert.throws(() => h.propose(1), /mode/);
+  h.commit(h.propose(1, { isCram: false })); assert.equal(h.view().mastery, 1);
+  assert.equal(preview.result.nextDate, preview.review.date + 60000);
+});
+
+test('known excluded queue mode overrides an explicit non-cram preview', () => {
+  const h = harness(); h.coordinator.mode = 'practice-all';
+  h.commit(h.propose(1, { isCram: false })); assert.equal(h.view().mastery, 0);
+  assert.equal(h.card.due, EPOCH);
+});
+
+test('exact post-reset callback history supports graduation, retry, replay and undo', () => {
+  const h = harness(); h.coordinator.mode = 'unknown';
+  h.card.history.push({ date: EPOCH - 120000, score: 1 }, { date: EPOCH - 60000, score: 3 });
+  for (let i = 0; i < 5; i++) {
+    const review = { date: EPOCH + i * 60000, score: 1, isCram: false };
+    const callback = [...h.card.history.slice(2), review];
+    const result = h.coordinator.calculate(h.card, callback);
+    assert.deepEqual(h.coordinator.calculate(h.card, callback), result);
+    assert.equal(h.view().mastery, i);
+    h.card.history.push({ ...review, pluginData: result.pluginData });
+    assert.deepEqual(h.coordinator.calculate(h.card, h.card.history.slice(2)), result);
+  }
+  assert.equal(h.view().stage, 'srs'); assert.equal(h.view().correct, 0);
+  assert.equal((h.memory as CountingMemory).calls, 1);
+  h.card.history.pop(); assert.equal(h.view().mastery, 4); assert.equal(h.view().stage, 'mastery');
+});
+
+test('a reset does not permit arbitrary missing reviews in a callback', () => {
+  const h = harness();
+  h.card.history.push({ date: EPOCH - 60000, score: 3 }, { date: EPOCH, score: 1, isCram: false });
+  assert.throws(() => h.coordinator.calculate(h.card, [{ date: EPOCH + 60000, score: 1, isCram: false }]), /exactly one/);
+});
 test('cram and practice-all preserve due and never affect either score or total', () => {
   const h = harness(); h.graduate(); const due = h.card.due;
   h.commit(h.propose(1, { isCram: true })); assert.equal(h.view().correct, 0); assert.equal(h.card.due, due);

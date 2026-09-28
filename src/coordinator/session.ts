@@ -1,4 +1,4 @@
-import { keys, latestReceipt, receiptAt } from '../domain/history';
+import { keys, latestReceipt, receiptAt, resetIndex } from '../domain/history';
 import { schedule, status, type ScheduleResult } from '../domain/engine';
 import { ContractError, OWNER, type MemoryScheduler, type Review, type SessionAnchor, type StatusView } from '../domain/types';
 
@@ -48,12 +48,23 @@ export class SessionCoordinator {
     const anchor = this.anchor(snapshot);
     const candidate = callbackHistory.at(-1);
     if (!candidate) throw new ContractError('Scheduler callback has no candidate rating.');
+    // Mode belongs to this calculation, not to the session: the host can ask
+    // for non-cram button previews and then submit a cram rating for one card.
+    const mode = this.mode === 'unknown' && candidate.isCram === false ? 'normal' : this.mode;
     // The live host can provide a one-entry cram history even when native
     // history contains older reviews. Exclusion needs no history reconstruction
     // or normal-mode inference: return the saved due date without learning.
-    if (candidate.isCram === true || this.mode === 'practice-all' || this.mode === 'in-order') {
+    if (candidate.isCram === true || mode === 'practice-all' || mode === 'in-order') {
       if (snapshot.due === undefined || !Number.isFinite(snapshot.due)) throw new ContractError('Cannot preserve an unknown due date during excluded practice.');
       return { nextDate: snapshot.due, pluginData: { ...candidate.pluginData, [OWNER]: { schema: 1, excluded: true } } };
+    }
+    // Scheduling ignores entries through the last reset, but native history
+    // retains them. Restore that exact prefix only when the remaining history
+    // matches in full; arbitrary truncations or omissions are still rejected.
+    const reset = resetIndex(snapshot.history);
+    const lifetime = snapshot.history.slice(reset + 1);
+    if (reset >= 0 && (same(callbackHistory, lifetime) || same(callbackHistory.slice(0, -1), lifetime))) {
+      callbackHistory = [...snapshot.history.slice(0, reset + 1), ...callbackHistory];
     }
     // Replay of an already saved call returns its exact prior result.
     if (same(callbackHistory, snapshot.history)) {
@@ -62,7 +73,7 @@ export class SessionCoordinator {
       throw new ContractError('Callback arrived after saving without a receipt. This host callback contract needs validation.');
     }
     if (!same(callbackHistory.slice(0, -1), snapshot.history)) throw new ContractError('Callback does not append exactly one rating to saved history.');
-    if (this.mode === 'unknown') throw new ContractError('Queue mode has not been observed. Verify GetNextCard mode delivery before using this build.');
+    if (mode === 'unknown') throw new ContractError('Queue mode is unknown and the candidate has no explicit non-cram flag.');
     this.observe(snapshot);
     this.adopted.add(snapshot.cardId);
     const cacheKey = JSON.stringify(keys(callbackHistory));
@@ -71,7 +82,7 @@ export class SessionCoordinator {
     // Native UI can ask for the same rating repeatedly. Memoization also avoids
     // duplicate FSRS work; neither a cache hit nor a miss commits progress.
     const cached = cache.get(cacheKey); if (cached) return structuredClone(cached);
-    const result = schedule({ cardId: snapshot.cardId, history: [...snapshot.history, candidate], anchor, mode: this.mode }, this.memory);
+    const result = schedule({ cardId: snapshot.cardId, history: [...snapshot.history, candidate], anchor, mode }, this.memory);
     cache.set(cacheKey, structuredClone(result));
     // Only current previews and recent uncertain writes need retaining.
     if (cache.size > 16) cache.delete(cache.keys().next().value!);

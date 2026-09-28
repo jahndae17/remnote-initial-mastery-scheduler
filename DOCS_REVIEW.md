@@ -19,6 +19,8 @@ Reviewed against https://plugins.remnote.com/ and the shipped SDK 0.0.46 declara
 
 ## Additional build fixes
 
+- Version 0.1.7 handles exact history suffixes after a native reset. [RemNote's reset documentation](https://help.remnote.com/en/articles/7230389-resetting-flashcard-scheduling) explains that old reviews remain in history but are ignored for scheduling. The user's diagnostic suffix equality and live one-minute previews support this normalization; arbitrary truncation is still rejected. Explicit non-cram flags are interpreted per calculation because non-cram previews and cram submissions can occur in the same queue. Saved metadata and commit flags remain acceptance gates. The queue now uses a 32-pixel single row and Details popup instead of relying on vertical scrolling in a clipped frame.
+
 - Version 0.1.6 uses numeric 128-pixel height for the queue widget, following the documented fixed-dimension API. The earlier flow-root change did not resolve clipping in the user's second recording. Content scrolls inside that frame, and unchanged status writes are suppressed. Explicit native `isCram: true` now short-circuits normal-history/mode validation to preserve due dates without learning; unknown normal-practice contracts remain blocked.
 
 - Version 0.1.5 addresses the recorded queue banner flicker by retaining per-card integration errors across polling. A flow-root wrapper prevents status-panel margins from collapsing outside the element measured by the SDK's ResizeObserver. Live callback history differs from the original engine contract; anonymous shape diagnostics were added without weakening scheduling guards or treating previews as saved ratings.

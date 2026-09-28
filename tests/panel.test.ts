@@ -3,9 +3,20 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { StatusPanel } from '../src/ui/StatusPanel';
+import { QueueStrip } from '../src/ui/QueueStrip';
 import type { StatusView } from '../src/domain/types';
 const base: StatusView = { cardId: 'a', stage: 'mastery', mastery: 3, confirmation: 0, correct: 0, message: '−1 · Initial Mastery 3/5' };
 const render = (view: StatusView, mode?: string) => renderToStaticMarkup(React.createElement(StatusPanel, { view, mode, now: 0 }));
+
+test('queue strip keeps accessible scores and a details control for full error text', () => {
+  const strip = (view: StatusView) => renderToStaticMarkup(React.createElement(QueueStrip, { view, mode: 'normal', onDetails() {} }));
+  const html = strip({ ...base, stage: 'srs', mastery: 5, confirmation: 1, correct: 17 });
+  assert.match(html, /5\/5 ✓/); assert.match(html, /1\/2/); assert.match(html, /Correct since graduation: 17/);
+  assert.match(html, /Open Initial Mastery details/);
+  const error = strip({ ...base, stage: 'error', error: 'Long history error' });
+  assert.match(error, /role="alert"/); assert.match(error, /title="Long history error"/);
+  assert.match(error, /Open Initial Mastery details/);
+});
 test('initial panel contains five accessible segments, score and zero total', () => {
   const html = render(base); assert.match(html, /aria-valuenow="3"/); assert.match(html, /aria-valuemax="5"/);
   assert.match(html, /3\/5/); assert.match(html, /Correct since graduation/); assert.doesNotMatch(html, /Current SRS confirmation/);

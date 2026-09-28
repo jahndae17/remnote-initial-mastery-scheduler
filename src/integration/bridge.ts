@@ -21,15 +21,20 @@ export class RemNoteBridge {
   private callbackCalls = { scheduling: 0, queueMode: 0 };
   private callbackCramFlags = { true: 0, false: 0, missing: 0 };
   private lastCallback?: ReturnType<typeof inspectCallbackHistory>;
+  private lastCallbackByCramFlag: Partial<Record<'true' | 'false' | 'missing', ReturnType<typeof inspectCallbackHistory>>> = {};
+  private lastFailure?: { message: string; callback: ReturnType<typeof inspectCallbackHistory> | null };
   private cardErrors = new Map<string, string>();
   private pausedCards = new Set<string>();
+  private normalCards = new Set<string>();
   private viewWrites: Promise<void> = Promise.resolve();
   private lastView?: string;
+  private lastDiagnostics?: string;
+  private diagnosticWrites: Promise<void> = Promise.resolve();
   private error = '';
   private stopped = false;
   private lastFeedback?: { cardId: string; message: string; expires: number; generation: number };
   private feedbackSeen = new Map<string, string>();
-  private clearFeedback() { this.feedbackSeen.clear(); this.lastFeedback = undefined; this.cardErrors.clear(); this.pausedCards.clear(); }
+  private clearFeedback() { this.feedbackSeen.clear(); this.lastFeedback = undefined; this.cardErrors.clear(); this.pausedCards.clear(); this.normalCards.clear(); }
   private writeView(value: PanelSnapshot): Promise<void> {
     const serialized = JSON.stringify(value);
     const write = this.viewWrites.then(async () => {
@@ -72,18 +77,28 @@ export class RemNoteBridge {
     return kb._id;
   }
   private async diagnostics() {
-    await this.plugin.storage.setSession(DIAGNOSTICS_KEY, {
-      build: '0.1.6-development', liveValidated: false, active: this.session.active,
+    const value = {
+      build: '0.1.7-development', liveValidated: false, active: this.session.active,
       mode: this.session.mode, generation: this.session.generation,
       cardsObserved: this.session.size, events: this.events, callbackShapes: this.callbackShapes,
       callbackCalls: this.callbackCalls, lastCallback: this.lastCallback || null,
       callbackCramFlags: this.callbackCramFlags,
+      lastCallbackByCramFlag: this.lastCallbackByCramFlag, lastFailure: this.lastFailure || null,
       lastError: this.error || null,
-      contracts: ['Candidate must append exactly one saved review', 'Normal mode must arrive via GetNextCard', 'Saved rating must retain returned pluginData'],
+      contracts: ['Callback must match full history or history after the latest reset, plus one candidate', 'Normal calculation requires queue mode or explicit isCram:false; cram never advances', 'Saved rating must retain returned pluginData'],
+    };
+    const serialized = JSON.stringify(value);
+    const write = this.diagnosticWrites.then(async () => {
+      if (serialized === this.lastDiagnostics) return;
+      await this.plugin.storage.setSession(DIAGNOSTICS_KEY, JSON.parse(serialized));
+      this.lastDiagnostics = serialized;
     });
+    this.diagnosticWrites = write.catch(() => {});
+    await write;
   }
   private async report(error: unknown, cardId = this.currentId || '') {
     this.error = error instanceof Error ? error.message : String(error);
+    this.lastFailure = { message: this.error, callback: this.lastCallback || null };
     if (cardId) this.cardErrors.set(cardId, this.error);
     if (this.session.kb && cardId === this.currentId) await this.writeView({
       kb: this.session.kb, generation: this.session.generation, mode: this.session.mode,
@@ -103,9 +118,12 @@ export class RemNoteBridge {
       this.callbackShapes[shape] = (this.callbackShapes[shape] || 0) + 1;
       this.lastCallback = inspectCallbackHistory(args.history, snapshot.history);
       this.callbackCramFlags[this.lastCallback.candidateIsCram as keyof typeof this.callbackCramFlags]++;
+      this.lastCallbackByCramFlag[this.lastCallback.candidateIsCram as keyof typeof this.callbackCramFlags] = this.lastCallback;
       const result = this.session.calculate(snapshot, args.history);
       if (args.history.at(-1)?.isCram === true || this.session.mode === 'practice-all' || this.session.mode === 'in-order') this.pausedCards.add(snapshot.cardId);
       else this.pausedCards.delete(snapshot.cardId);
+      if (args.history.at(-1)?.isCram === false) this.normalCards.add(snapshot.cardId);
+      else this.normalCards.delete(snapshot.cardId);
       this.cardErrors.delete(snapshot.cardId);
       this.error = [...this.cardErrors.values()].at(-1) || '';
       // Publish saved history, never a hypothetical callback result.
@@ -133,7 +151,7 @@ export class RemNoteBridge {
     const feedback = previous && previous.cardId !== snapshot.cardId && previous.generation === this.session.generation && previous.expires > Date.now()
       ? `Previous card: ${previous.message}` : undefined;
     if (snapshot.cardId === this.currentId) await this.writeView({
-      kb: this.session.kb!, generation: this.session.generation, mode: this.pausedCards.has(snapshot.cardId) ? 'cram' : this.session.mode, view, feedback,
+      kb: this.session.kb!, generation: this.session.generation, mode: this.pausedCards.has(snapshot.cardId) ? 'cram' : this.normalCards.has(snapshot.cardId) && this.session.mode === 'unknown' ? 'normal' : this.session.mode, view, feedback,
     } as PanelSnapshot);
   }
   async refresh() {
@@ -176,7 +194,9 @@ export class RemNoteBridge {
       } catch (error) { await this.report(error); }
       return null; // Native RemNote still chooses every queue card.
     });
-    for (const event of [AppEvents.QueueEnter, AppEvents.QueueExit, AppEvents.QueueLoadCard, AppEvents.QueueCompleteCard, AppEvents.RevealAnswer, AppEvents.URLChange, AppEvents.GlobalRemChanged]) {
+    // Content edits are detected by the bounded polling snapshot. Global Rem
+    // notifications can include plugin-state writes and cause a refresh loop.
+    for (const event of [AppEvents.QueueEnter, AppEvents.QueueExit, AppEvents.QueueLoadCard, AppEvents.QueueCompleteCard, AppEvents.RevealAnswer, AppEvents.URLChange]) {
       this.plugin.event.addListener(event, undefined, () => {
         this.events[event] = (this.events[event] || 0) + 1;
         if (event === AppEvents.QueueExit) {
