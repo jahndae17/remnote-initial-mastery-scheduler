@@ -4,7 +4,7 @@
   "name": "Initial Mastery + FSRS (Development)",
   "author": "Initial Mastery project",
   "repoUrl": "https://github.com/jahndae17/remnote-initial-mastery-scheduler",
-  "version": { "major": 0, "minor": 1, "patch": 3 },
+  "version": { "major": 0, "minor": 1, "patch": 4 },
   "theme": [],
   "enableOnMobile": false,
   "unlisted": true,

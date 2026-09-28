@@ -19,6 +19,8 @@ Reviewed against https://plugins.remnote.com/ and the shipped SDK 0.0.46 declara
 
 ## Additional build fixes
 
+- SDK 0.0.46's `Card.getRem()` declaration promises a Rem object, but its shipped JavaScript returns raw transport data. Version 0.1.4 uses `plugin.rem.findOne(card.remId)`, whose SDK implementation wraps the result with Rem methods. A real-SDK wrapper regression test covers this difference; the earlier rich-object mock hid it.
+
 - Diagnostics popup sizing uses explicit numeric SDK dimensions (640 × 480). The widget scrolls within that fixed iframe. Avoid CSS `min(...)` in SDK dimensions and avoid combining automatic iframe height with an iframe-relative height cap, which can produce unstable sizing. Live dimensions still need confirmation in the user's client.
 
 - The upstream template's `.nvmrc` specified Node 16.15.1, while the selected ts-fsrs package requires Node >=20. Set `.nvmrc` to the tested Node 24.4.1 and declare Node >=20 in package metadata.

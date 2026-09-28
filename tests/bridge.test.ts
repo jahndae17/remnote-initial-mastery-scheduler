@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { RNPlugin } from '@remnote/plugin-sdk';
 import type { Review } from '../src/domain/types';
 
-async function host() {
+async function host(sdkObjects = false) {
   // The SDK UMD bundle names the global self even for non-DOM API imports.
   (globalThis as any).self = globalThis;
   const { RemNoteBridge, VIEW_KEY, DIAGNOSTICS_KEY } = await import('../src/integration/bridge');
@@ -25,6 +25,28 @@ async function host() {
     event: { addListener: (k: string, _id: unknown, fn: Function) => { events.set(k, fn); } },
     scheduler: { registerCustomScheduler: async (name: string, params: unknown[]) => { assert.equal(name, 'Initial Mastery + FSRS'); assert.deepEqual(params, []); } },
   } as unknown as RNPlugin;
+  if (sdkObjects) {
+    const { CardNamespace, RemNamespace } = await import('@remnote/plugin-sdk');
+    // Simulate only the serialized host transport; let the pinned SDK construct
+    // real objects. In particular, Card.getRem must not be mocked as a rich Rem.
+    const call = async (method: string, _args: Record<string, any>, namespace?: string | string[]) => {
+      if (namespace === 'card' && method === 'findOne') {
+        await readBarrier;
+        return deleted ? undefined : { _id: 'a', remId: 'rem-a', cardType: 'f', history, nextTime: 0, createdAt: 0 };
+      }
+      if (namespace === 'rem') {
+        if (method === 'findOne') return deleted ? undefined : {
+          _id: rem._id, text: rem.text, backText: rem.backText, children: [], parent: null, type: 1, createdAt: 0, u: 0, o: 0,
+        };
+        if (method === 'getEnablePractice') return enabled;
+        if (method === 'getPracticeDirection') return 'both';
+        if (method === 'getChildrenRem') return [];
+      }
+      throw new Error(`Unexpected SDK transport call: ${namespace}.${method}`);
+    };
+    plugin.card = new CardNamespace(call);
+    plugin.rem = new RemNamespace(call);
+  }
   const bridge = new RemNoteBridge(plugin); await bridge.start();
   const mode = async (value = 'normal') => callbacks.get('GetNextCard')!({ mode: value, cardsPracticed: 0, numCardsRemaining: remaining });
   const calculate = async (score = 1) => callbacks.get('SRSScheduleCard')!({ cardId: 'a', remId: 'rem-a', schedulerParameters: {}, history: [...history, { date: 1767225600000 + history.length * 60000, score }] });
@@ -45,6 +67,18 @@ test('bridge registers scheduler, observes mode, and only saved ratings advance 
   const h = await host(); try {
     assert.equal(await h.mode(), null); await h.calculate(); assert.equal(h.view().view.mastery, 0);
     await h.answer(); assert.equal(h.view().view.mastery, 1); assert.equal(h.diagnostic().mode, 'normal');
+  } finally { await h.bridge.stop(); }
+});
+
+test('actual SDK wrappers supply Rem methods and preserve saved-only advancement', async () => {
+  const h = await host(true); try {
+    assert.equal(h.diagnostic().lastError, null);
+    assert.equal(h.view().view.mastery, 0);
+    await h.mode(); await h.calculate(); assert.equal(h.view().view.mastery, 0);
+    await h.answer(); assert.equal(h.view().view.mastery, 1);
+    h.rem.text = ['edited']; await h.bridge.refresh(); assert.equal(h.view().view.mastery, 0);
+    h.set({ enabled: false }); await assert.rejects(h.calculate(), /disabled/);
+    h.set({ deleted: true }); await assert.rejects(h.calculate(), /deleted/);
   } finally { await h.bridge.stop(); }
 });
 test('native queue exit clears view and all score anchors', async () => {

@@ -25,7 +25,9 @@ export class RemNoteBridge {
   constructor(private plugin: RNPlugin) {}
   private async snapshot(cardId: string): Promise<Snapshot> {
     const card = await this.plugin.card.findOne(cardId);
-    const rem = await card?.getRem();
+    // SDK 0.0.46 Card.getRem returns unwrapped transport data at runtime.
+    // RemNamespace.findOne constructs the Rem object with practice/content methods.
+    const rem = card ? await this.plugin.rem.findOne(card.remId) : undefined;
     if (!card || !rem) { this.session.forget(cardId); throw new ContractError('Card was deleted.'); }
     const [enabled, direction, children] = await Promise.all([
       rem.getEnablePractice(), rem.getPracticeDirection(), rem.getChildrenRem(),
@@ -53,7 +55,7 @@ export class RemNoteBridge {
   }
   private async diagnostics() {
     await this.plugin.storage.setSession(DIAGNOSTICS_KEY, {
-      build: '0.1.3-development', liveValidated: false, active: this.session.active,
+      build: '0.1.4-development', liveValidated: false, active: this.session.active,
       mode: this.session.mode, generation: this.session.generation,
       cardsObserved: this.session.size, events: this.events, callbackShapes: this.callbackShapes,
       lastError: this.error || null,
