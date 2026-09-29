@@ -6,6 +6,7 @@
 - `src/fsrs/`: one deterministic FSRS adapter with JSON-safe date serialization. Only graduation and the first rating of a new SRS cycle call it.
 - `src/coordinator/`: memory-only session anchors and preview cache. Reconstructs progress from saved receipts after each observation; callbacks never increment counters.
 - `src/integration/`: SDK adapter, queue lifecycle, mode observer and ephemeral view publication.
+- `src/integration/session-writer.ts`: shared serialization, unchanged-value suppression and failure recovery for the independent panel and diagnostics session-storage channels.
 - `src/ui/` and `src/widgets/`: read-only React panel and development diagnostics. No card content or answer input is rendered by the plugin.
 
 ## Persisted contract

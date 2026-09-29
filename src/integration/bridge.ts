@@ -1,10 +1,11 @@
 import { AppEvents, PageType_DUPE_1 as PageType, SchedulerExplanationType, SpecialPluginCallback, type RNPlugin, type SRSScheduleCardParams } from '@remnote/plugin-sdk';
 import { SessionCoordinator, type Snapshot } from '../coordinator/session';
 import { FsrsAdapter } from '../fsrs/adapter';
-import { ContractError, OWNER } from '../domain/types';
+import { ContractError, OWNER, type StatusView } from '../domain/types';
 import { latestReceipt, reviewKey } from '../domain/history';
 import { inspectCallbackHistory } from './callback-shape';
 import { VIEW_KEY, DIAGNOSTICS_KEY, type PanelSnapshot } from './view';
+import { sessionWriter } from './session-writer';
 export { VIEW_KEY, DIAGNOSTICS_KEY } from './view';
 import type { RemObject } from '@remnote/plugin-sdk/dist/name_spaces/rem';
 
@@ -30,18 +31,15 @@ export class RemNoteBridge {
   private lastFailure?: { message: string; callback: ReturnType<typeof inspectCallbackHistory> | null };
   private lastSavedResult?: { stage: string; mastery: number; confirmation: number; correct: number; acceptedEarly: boolean; outcome: string };
   private cardErrors = new Map<string, string>();
-  private pausedCards = new Set<string>();
-  private normalCards = new Set<string>();
+  private cardModes = new Map<string, 'normal' | 'cram'>();
   private awaitingSave = new Map<string, { key: string; expires: number }>();
-  private viewWrites: Promise<void> = Promise.resolve();
-  private lastView?: string;
-  private lastDiagnostics?: string;
-  private diagnosticWrites: Promise<void> = Promise.resolve();
+  private writeView = sessionWriter<PanelSnapshot>(value => this.plugin.storage.setSession(VIEW_KEY, value));
+  private writeDiagnostics = sessionWriter(value => this.plugin.storage.setSession(DIAGNOSTICS_KEY, value));
   private error = '';
   private stopped = false;
   private lastFeedback?: { cardId: string; message: string; expires: number; generation: number };
   private feedbackSeen = new Map<string, string>();
-  private clearFeedback() { this.cancelFastRefresh(); this.snapshotReads.clear(); this.contextRead = undefined; this.awaitingSave.clear(); this.lastSavedResult = undefined; this.feedbackSeen.clear(); this.lastFeedback = undefined; this.cardErrors.clear(); this.pausedCards.clear(); this.normalCards.clear(); }
+  private clearFeedback() { this.cancelFastRefresh(); this.snapshotReads.clear(); this.contextRead = undefined; this.awaitingSave.clear(); this.lastSavedResult = undefined; this.feedbackSeen.clear(); this.lastFeedback = undefined; this.cardErrors.clear(); this.cardModes.clear(); }
   private cancelFastRefresh() { for (const timer of this.fastTimers) clearTimeout(timer); this.fastTimers.clear(); this.refreshRequested = false; }
   private fastRefresh() {
     if (this.stopped || !this.session.active || this.fastTimers.size) return;
@@ -54,15 +52,9 @@ export class RemNoteBridge {
       this.fastTimers.add(timer);
     }
   }
-  private writeView(value: PanelSnapshot): Promise<void> {
-    const serialized = JSON.stringify(value);
-    const write = this.viewWrites.then(async () => {
-      if (serialized === this.lastView) return;
-      await this.plugin.storage.setSession(VIEW_KEY, value);
-      this.lastView = serialized;
-    });
-    this.viewWrites = write.catch(() => {});
-    return write;
+  private async writeCurrentView(view: StatusView, mode: string = this.session.mode, feedback?: string) {
+    if (!this.session.kb || view.cardId !== this.currentId) return;
+    await this.writeView({ kb: this.session.kb, generation: this.session.generation, mode, view, feedback });
   }
   constructor(private plugin: RNPlugin) {}
   private snapshot(cardId: string): Promise<Snapshot> {
@@ -118,8 +110,8 @@ export class RemNoteBridge {
     return kb._id;
   }
   private async diagnostics() {
-    const value = {
-      build: '0.1.9-development', liveValidated: false, active: this.session.active,
+    await this.writeDiagnostics({
+      build: '0.1.10-development', liveValidated: false, active: this.session.active,
       sharedSnapshotReads: this.sharedSnapshotReads,
       mode: this.session.mode, generation: this.session.generation,
       cardsObserved: this.session.size, events: this.events, callbackShapes: this.callbackShapes,
@@ -129,24 +121,13 @@ export class RemNoteBridge {
       lastSavedResult: this.lastSavedResult || null,
       lastError: this.error || null,
       contracts: ['Callback must match full history or history after the latest reset, plus one candidate', 'Initial Mastery accepts early ratings; completed SRS cycles exclude extra practice', 'Saved rating must retain returned pluginData'],
-    };
-    const serialized = JSON.stringify(value);
-    const write = this.diagnosticWrites.then(async () => {
-      if (serialized === this.lastDiagnostics) return;
-      await this.plugin.storage.setSession(DIAGNOSTICS_KEY, JSON.parse(serialized));
-      this.lastDiagnostics = serialized;
     });
-    this.diagnosticWrites = write.catch(() => {});
-    await write;
   }
   private async report(error: unknown, cardId = this.currentId || '') {
     this.error = error instanceof Error ? error.message : String(error);
     this.lastFailure = { message: this.error, callback: this.lastCallback || null };
     if (cardId) this.cardErrors.set(cardId, this.error);
-    if (this.session.kb && cardId === this.currentId) await this.writeView({
-      kb: this.session.kb, generation: this.session.generation, mode: this.session.mode,
-      view: { cardId, stage: 'error', mastery: 0, confirmation: 0, correct: 0, message: '', error: this.error },
-    } as PanelSnapshot);
+    await this.writeCurrentView({ cardId, stage: 'error', mastery: 0, confirmation: 0, correct: 0, message: '', error: this.error });
     await this.diagnostics();
   }
   async calculate(args: SRSScheduleCardParams) {
@@ -170,8 +151,7 @@ export class RemNoteBridge {
       this.awaitingSave.set(snapshot.cardId, { key: reviewKey(args.history.at(-1)!), expires: Date.now() + 15000 });
       if (this.awaitingSave.size > 4) this.awaitingSave.delete(this.awaitingSave.keys().next().value!);
       const excluded = (result.pluginData[OWNER] as { excluded?: boolean })?.excluded === true;
-      if (excluded) { this.pausedCards.add(snapshot.cardId); this.normalCards.delete(snapshot.cardId); }
-      else { this.pausedCards.delete(snapshot.cardId); this.normalCards.add(snapshot.cardId); }
+      this.cardModes.set(snapshot.cardId, excluded ? 'cram' : 'normal');
       this.cardErrors.delete(snapshot.cardId);
       this.error = [...this.cardErrors.values()].at(-1) || '';
       // Publish saved history, never a hypothetical callback result.
@@ -191,10 +171,7 @@ export class RemNoteBridge {
     const view = this.session.observe(snapshot);
     const error = this.cardErrors.get(snapshot.cardId);
     if (error) {
-      if (snapshot.cardId === this.currentId) await this.writeView({
-        kb: this.session.kb!, generation: this.session.generation, mode: this.session.mode,
-        view: { ...view, stage: 'error', error },
-      } as PanelSnapshot);
+      await this.writeCurrentView({ ...view, stage: 'error', error });
       return;
     }
     const receipt = latestReceipt(snapshot.history, snapshot.cardId);
@@ -208,9 +185,7 @@ export class RemNoteBridge {
     const previous = this.lastFeedback;
     const feedback = previous && previous.cardId !== snapshot.cardId && previous.generation === this.session.generation && previous.expires > Date.now()
       ? `Previous card: ${previous.message}` : undefined;
-    if (snapshot.cardId === this.currentId) await this.writeView({
-      kb: this.session.kb!, generation: this.session.generation, mode: this.pausedCards.has(snapshot.cardId) ? 'cram' : this.normalCards.has(snapshot.cardId) ? 'normal' : this.session.mode, view, feedback,
-    } as PanelSnapshot);
+    await this.writeCurrentView(view, this.cardModes.get(snapshot.cardId) ?? this.session.mode, feedback);
   }
   async refresh() {
     if (this.stopped) return;

@@ -106,6 +106,7 @@ const config = {
         { from: 'VALIDATION.md', to: '' },
         { from: 'ARCHITECTURE.md', to: '' },
         { from: 'DOCS_REVIEW.md', to: '' },
+        { from: 'REVIEW_GUIDE.md', to: '' },
         { from: 'LICENSE', to: '' },
         { from: 'THIRD_PARTY_NOTICES.md', to: '' },
       ],

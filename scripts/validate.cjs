@@ -3,9 +3,13 @@ const fs = require('node:fs');
 globalThis.self = globalThis;
 const { parseManifest } = require('@remnote/plugin-sdk');
 const manifest = JSON.parse(fs.readFileSync('public/manifest.json', 'utf8'));
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const result = parseManifest(manifest);
 if (!result.success) throw new Error(JSON.stringify(result.errors, null, 2));
 if (manifest.id !== 'initial_mastery_scheduler') throw new Error('Unexpected plugin identity');
+const version = ['major', 'minor', 'patch'].map(key => manifest.version[key]).join('.');
+if (version !== pkg.version) throw new Error('Package and manifest versions must match.');
+if (manifest.description?.length >= 200) throw new Error('Manifest description must be under 200 characters.');
 // SDK 0.0.46 accepts arbitrary URLs; the current installer requires GitHub.
 const repository = new URL(manifest.repoUrl);
 if (repository.protocol !== 'https:' || repository.hostname !== 'github.com' ||

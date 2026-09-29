@@ -1,5 +1,7 @@
 # Official RemNote documentation review
 
+For the **current 0.1.10 submission audit (2026-09-29)**, use [REVIEW_GUIDE.md](REVIEW_GUIDE.md). The notes below are the historical API investigation; later corrections and live observations are recorded in [VALIDATION.md](VALIDATION.md).
+
 Reviewed against https://plugins.remnote.com/ and the shipped SDK 0.0.46 declarations for development version 0.1.2. This is a source/API review, not live RemNote certification.
 
 | Area | Official reference | Finding/action |

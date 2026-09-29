@@ -4,10 +4,11 @@
   "name": "Initial Mastery + FSRS (Development)",
   "author": "Initial Mastery project",
   "repoUrl": "https://github.com/jahndae17/remnote-initial-mastery-scheduler",
+  "supportUrl": "https://github.com/jahndae17/remnote-initial-mastery-scheduler/issues",
   "version": {
     "major": 0,
     "minor": 1,
-    "patch": 9
+    "patch": 10
   },
   "theme": [],
   "enableOnMobile": false,

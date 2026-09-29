@@ -1,13 +1,14 @@
 {
   "private": true,
   "name": "remnote-initial-mastery-scheduler",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "license": "MIT",
   "scripts": {
     "check-types": "tsc",
     "dev": "cross-env NODE_ENV=development webpack-dev-server --no-open",
     "build": "npm run check-types && node scripts/validate.cjs && cross-env NODE_ENV=production webpack && node scripts/package.cjs",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "verify": "npm test && npm run build"
   },
   "dependencies": {
     "@remnote/plugin-sdk": "0.0.46",
